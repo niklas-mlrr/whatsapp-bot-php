@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, Browsers } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const pino = require('pino'); // Optional: for logging
 const fetch = require('node-fetch'); // for sending messages to PHP endpoint
@@ -6,25 +6,25 @@ const fetch = require('node-fetch'); // for sending messages to PHP endpoint
 function sendToPHP(messageText, fromJid) {
     console.log("ATTEMPTING PHP REQUEST >>>>>>>>>>>>>>>>>");
     console.log(`Sending to PHP: From=${fromJid}, Message=${messageText}`);
-    
+
     const data = {
         from: fromJid,
         message: messageText
     };
-    
+
     console.log("Request payload:", JSON.stringify(data));
-    
+
     fetch("https://abiplanung.untis-notify.de/whatsapp_receiver.php", {
         method: "POST",
-        headers: { 
+        headers: {
             "Content-Type": "application/json",
-            "X-Debug-Source": "whatsapp-node" 
+            "X-Debug-Source": "whatsapp-node"
         },
         body: JSON.stringify(data)
     }).then(async res => {
         console.log("PHP SERVER RESPONSE >>>>>>>>>>>>>>>>>");
         console.log(`Status: ${res.status} ${res.statusText}`);
-        
+
         try {
             // Try to get response text
             const responseText = await res.text();
@@ -32,7 +32,7 @@ function sendToPHP(messageText, fromJid) {
         } catch (textError) {
             console.log("Could not read response body:", textError.message);
         }
-        
+
         console.log("END OF PHP REQUEST >>>>>>>>>>>>>>>>>");
     }).catch(err => {
         console.error("ERROR SENDING TO PHP >>>>>>>>>>>>>>>>>");
@@ -54,10 +54,11 @@ async function connectToWhatsApp() {
     console.log(`Using Baileys version ${version}, isLatest: ${isLatest}`);
 
     const sock = makeWASocket({
-        browser: ['Ubuntu', 'Chrome', '22.04'],
+        browser: Browsers.macOS('Desktop'), // Recommended browser identity
         version,
         auth: state,
         logger: pino({ level: 'debug' }), // Keep debug level for now
+        syncFullHistory: false,
     });
 
     // Handle connection updates
@@ -69,26 +70,19 @@ async function connectToWhatsApp() {
         }
 
         if (connection === 'close') {
-            const statusCode = (lastDisconnect.error instanceof Boom)?.output?.statusCode;
-            const shouldReconnect = lastDisconnect?.error ? statusCode !== DisconnectReason.loggedOut : false;
+            const shouldReconnect = (lastDisconnect.error instanceof Boom)
+                ? lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut
+                : false;
 
             console.error('Connection closed due to ', lastDisconnect?.error, ', shouldReconnect: ', shouldReconnect);
 
-            if (statusCode === DisconnectReason.restartRequired) {
-                console.log('Restart required — reconnecting...');
-                setTimeout(() => connectToWhatsApp(), 1000); // automatische Wiederverbindung nach 1 Sekunde
-                return;
-            }
-
+            // Reconnect if the error is not a logout
             if (shouldReconnect) {
-                console.log('Connection closed unexpectedly. Please check logs and manually restart the script.');
-                process.exit(1);
-            } else {
-                console.log('Connection closed. Not reconnecting (Reason: Logged Out or No Error).');
-                if (statusCode === DisconnectReason.loggedOut) {
-                    console.log('Device was logged out. Please delete baileys_auth_info and restart.');
-                    process.exit(1);
-                }
+                console.log('Reconnecting...');
+                connectToWhatsApp();
+            } else if ((lastDisconnect.error instanceof Boom)?.output?.statusCode === DisconnectReason.loggedOut) {
+                 console.log('Device was logged out. Please delete baileys_auth_info and restart.');
+                 process.exit(1);
             }
         } else if (connection === 'open') {
             console.log('WhatsApp connection opened successfully!');
