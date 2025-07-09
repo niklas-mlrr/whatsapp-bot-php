@@ -43,4 +43,3 @@ file_put_contents("messages.log", $log, FILE_APPEND);
 echo json_encode(["status" => "ok"]);
 
 
-
