@@ -62,7 +62,11 @@ async function connectToWhatsApp() {
 
     // Handle connection updates
     sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
+        const { connection, lastDisconnect, qr } = update;
+
+        if(qr) {
+            console.log('\n\n\nQR code received, please scan:\n', qr, '\n\n\n');
+        }
 
         if (connection === 'close') {
             const statusCode = (lastDisconnect.error instanceof Boom)?.output?.statusCode;
