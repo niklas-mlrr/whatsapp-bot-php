@@ -102,6 +102,6 @@ switch ($type) {
         break;
 }
 
-// 5. Erfolgreiche Verarbeitung bestätigen
+
 echo json_encode(["status" => "ok", "message" => "Daten erfolgreich empfangen"]);
 
