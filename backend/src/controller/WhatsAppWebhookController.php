@@ -75,7 +75,7 @@ switch ($type) {
         }
 
         // Upload-Verzeichnis erstellen, falls es nicht existiert
-        $uploadDir = 'Uploads';
+        $uploadDir = 'uploads';
         if (!is_dir($uploadDir)) {
             // 0755 sind typische Berechtigungen für Verzeichnisse
             mkdir($uploadDir, 0755, true);
