@@ -1,12 +1,11 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, Browsers, downloadMediaMessage } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
-const pino = require('pino'); // Optional: for logging
-const fetch = require('node-fetch'); // for sending messages to PHP endpoint
+const pino = require('pino');
+const fetch = require('node-fetch');
 
 function sendToPHP(payload) {
     console.log("ATTEMPTING PHP REQUEST >>>>>>>>>>>>>>>>>");
 
-    // Zur besseren Lesbarkeit im Log kürzen wir die Base64-Daten, falls vorhanden
     const logPayload = { ...payload };
     if (logPayload.media) {
         logPayload.media = `[Base64 Data of ${logPayload.mimetype}, length: ${payload.media.length}]`;
@@ -14,13 +13,13 @@ function sendToPHP(payload) {
     console.log("Sending to PHP:", JSON.stringify(logPayload, null, 2));
 
 
-    fetch("https://abiplanung.untis-notify.de/whatsapp_receiver.php", {
+    fetch("https://abiplanung.untis-notify.de/Backend/Controller/WhatsAppWebhookController.php", {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
             "X-Debug-Source": "whatsapp-node"
         },
-        body: JSON.stringify(payload) // Senden des gesamten Payload-Objekts
+        body: JSON.stringify(payload)
     }).then(async res => {
         console.log("PHP SERVER RESPONSE >>>>>>>>>>>>>>>>>");
         console.log(`Status: ${res.status} ${res.statusText}`);
@@ -51,10 +50,10 @@ async function connectToWhatsApp() {
     console.log(`Using Baileys version ${version}, isLatest: ${isLatest}`);
 
     const sock = makeWASocket({
-        browser: Browsers.macOS('Desktop'), // Recommended browser identity
+        browser: Browsers.macOS('Desktop'),
         version,
         auth: state,
-        logger: pino({ level: 'debug' }), // Keep debug level for now
+        logger: pino({ level: 'debug' }),
         syncFullHistory: false,
     });
 
@@ -94,7 +93,7 @@ async function connectToWhatsApp() {
     sock.ev.on('messages.upsert', async (m) => {
         console.log('Received message:', JSON.stringify(m, undefined, 2));
 
-        m.messages.forEach(async msg => {
+        for (const msg of m.messages) {
             const isGroup = msg.key.remoteJid?.endsWith('@g.us');
             if (!msg.key.fromMe && m.type === 'notify') {
                 console.log(`Message from ${msg.key.remoteJid} (${isGroup ? 'Group' : 'User'}):`);
@@ -130,21 +129,19 @@ async function connectToWhatsApp() {
 
                     console.log('  Full image downloaded, size:', buffer.length);
 
-                    // Bild-Buffer in einen Base64-String umwandeln
                     const base64Image = buffer.toString('base64');
                     const caption = msg.message.imageMessage.caption || '';
 
-                    // Senden der Bilddaten an den PHP-Endpunkt
                     sendToPHP({
                         from: msg.key.remoteJid,
                         type: 'image',
-                        body: caption, // Die Bildunterschrift
-                        media: base64Image, // Die Base64-codierten Bilddaten
+                        body: caption,
+                        media: base64Image,
                         mimetype: msg.message.imageMessage.mimetype // z.B. 'image/jpeg'
                     });
                 }
             }
-        });
+        }
     });
 
     return sock;

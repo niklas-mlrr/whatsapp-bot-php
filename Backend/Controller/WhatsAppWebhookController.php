@@ -1,5 +1,4 @@
 <?php
-// whatsapp_receiver.php
 
 // Es ist eine gute Praxis, die Zeitzone explizit zu setzen.
 date_default_timezone_set('Europe/Berlin');
