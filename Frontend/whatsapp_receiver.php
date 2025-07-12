@@ -76,7 +76,7 @@ switch ($type) {
         }
 
         // Upload-Verzeichnis erstellen, falls es nicht existiert
-        $uploadDir = 'uploads';
+        $uploadDir = 'Uploads';
         if (!is_dir($uploadDir)) {
             // 0755 sind typische Berechtigungen für Verzeichnisse
             mkdir($uploadDir, 0755, true);
@@ -105,4 +105,3 @@ switch ($type) {
 // 5. Erfolgreiche Verarbeitung bestätigen
 echo json_encode(["status" => "ok", "message" => "Daten erfolgreich empfangen"]);
 
-?>
