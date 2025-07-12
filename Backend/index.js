@@ -1,18 +1,18 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, Browsers } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, Browsers, downloadMediaMessage } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const pino = require('pino'); // Optional: for logging
 const fetch = require('node-fetch'); // for sending messages to PHP endpoint
 
-function sendToPHP(messageText, fromJid) {
+function sendToPHP(payload) {
     console.log("ATTEMPTING PHP REQUEST >>>>>>>>>>>>>>>>>");
-    console.log(`Sending to PHP: From=${fromJid}, Message=${messageText}`);
 
-    const data = {
-        from: fromJid,
-        message: messageText
-    };
+    // Zur besseren Lesbarkeit im Log kürzen wir die Base64-Daten, falls vorhanden
+    const logPayload = { ...payload };
+    if (logPayload.media) {
+        logPayload.media = `[Base64 Data of ${logPayload.mimetype}, length: ${payload.media.length}]`;
+    }
+    console.log("Sending to PHP:", JSON.stringify(logPayload, null, 2));
 
-    console.log("Request payload:", JSON.stringify(data));
 
     fetch("https://abiplanung.untis-notify.de/whatsapp_receiver.php", {
         method: "POST",
@@ -20,13 +20,12 @@ function sendToPHP(messageText, fromJid) {
             "Content-Type": "application/json",
             "X-Debug-Source": "whatsapp-node"
         },
-        body: JSON.stringify(data)
+        body: JSON.stringify(payload) // Senden des gesamten Payload-Objekts
     }).then(async res => {
         console.log("PHP SERVER RESPONSE >>>>>>>>>>>>>>>>>");
         console.log(`Status: ${res.status} ${res.statusText}`);
 
         try {
-            // Try to get response text
             const responseText = await res.text();
             console.log("Response from PHP server:", responseText);
         } catch (textError) {
@@ -36,9 +35,7 @@ function sendToPHP(messageText, fromJid) {
         console.log("END OF PHP REQUEST >>>>>>>>>>>>>>>>>");
     }).catch(err => {
         console.error("ERROR SENDING TO PHP >>>>>>>>>>>>>>>>>");
-        console.error(`Error type: ${err.name}`);
-        console.error(`Error message: ${err.message}`);
-        console.error(`Stack trace: ${err.stack}`);
+        console.error(err);
         console.error("END OF ERROR >>>>>>>>>>>>>>>>>");
     });
 }
@@ -97,23 +94,55 @@ async function connectToWhatsApp() {
     sock.ev.on('messages.upsert', async (m) => {
         console.log('Received message:', JSON.stringify(m, undefined, 2));
 
-        // Example: Log message content if it's a text message
-        m.messages.forEach(msg => {
-            // Check if remoteJid exists and ends with @g.us for group messages
+        m.messages.forEach(async msg => {
             const isGroup = msg.key.remoteJid?.endsWith('@g.us');
-            // Basic check to avoid processing status updates or messages from self
             if (!msg.key.fromMe && m.type === 'notify') {
                 console.log(`Message from ${msg.key.remoteJid} (${isGroup ? 'Group' : 'User'}):`);
+
                 if (msg.message?.conversation) {
                     console.log(`  Text: ${msg.message.conversation}`);
-                    // Send message to PHP endpoint
-                    sendToPHP(msg.message.conversation, msg.key.remoteJid);
+                    sendToPHP({
+                        from: msg.key.remoteJid,
+                        type: 'text',
+                        body: msg.message.conversation
+                    });
+
                 } else if (msg.message?.extendedTextMessage) {
                     console.log(`  Extended Text: ${msg.message.extendedTextMessage.text}`);
-                    // Send extended text messages to PHP endpoint too
-                    sendToPHP(msg.message.extendedTextMessage.text, msg.key.remoteJid);
+                    sendToPHP({
+                        from: msg.key.remoteJid,
+                        type: 'text',
+                        body: msg.message.extendedTextMessage.text
+                    });
+
+                } else if (msg.message?.imageMessage) {
+                    console.log('  Image received. Downloading full image...');
+
+                    const buffer = await downloadMediaMessage(
+                        msg,
+                        'buffer',
+                        {},
+                        {
+                            logger: pino(),
+                            reuploadRequest: sock.updateMediaMessage
+                        }
+                    );
+
+                    console.log('  Full image downloaded, size:', buffer.length);
+
+                    // Bild-Buffer in einen Base64-String umwandeln
+                    const base64Image = buffer.toString('base64');
+                    const caption = msg.message.imageMessage.caption || '';
+
+                    // Senden der Bilddaten an den PHP-Endpunkt
+                    sendToPHP({
+                        from: msg.key.remoteJid,
+                        type: 'image',
+                        body: caption, // Die Bildunterschrift
+                        media: base64Image, // Die Base64-codierten Bilddaten
+                        mimetype: msg.message.imageMessage.mimetype // z.B. 'image/jpeg'
+                    });
                 }
-                // Add more conditions here to handle other message types (images, videos, etc.)
             }
         });
     });
