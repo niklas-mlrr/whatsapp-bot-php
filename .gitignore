@@ -1,3 +1,4 @@
-/backend/node_modules/
-/backend/baileys_auth_info/
+/receiver/node_modules/
+/receiver/baileys_auth_info/
 .idea/
+/composer.phar
