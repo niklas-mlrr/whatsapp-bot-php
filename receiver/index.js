@@ -11,7 +11,10 @@ async function start() {
     app.use(bodyParser.json({ limit: '10mb' }));
 
     app.post('/send-message', async (req, res) => {
-        if (!sockInstance || sockInstance.state.connection !== 'open') {
+        if (!sockInstance) {
+            return res.status(500).json({ error: 'WhatsApp socket not initialized' });
+        }
+        if (!sockInstance.state || sockInstance.state.connection !== 'open') {
             return res.status(500).json({ error: 'WhatsApp socket not connected' });
         }
         const { chat, type, content, media, mimetype } = req.body;
