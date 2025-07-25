@@ -4,10 +4,11 @@
   "description": "WhatsApp integration with PHP backend",
   "main": "index.js",
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.16",
     "@hapi/boom": "^10.0.1",
-    "pino": "^9.6.0",
-    "node-fetch": "^2.6.7"
+    "@whiskeysockets/baileys": "^6.7.16",
+    "express": "^5.1.0",
+    "node-fetch": "^2.6.7",
+    "pino": "^9.6.0"
   },
   "scripts": {
     "start": "node index.js"
