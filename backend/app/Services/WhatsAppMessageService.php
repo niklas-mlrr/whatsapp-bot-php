@@ -6,11 +6,21 @@ use App\DataTransferObjects\WhatsAppMessageData;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use App\Models\WhatsAppMessage;
 
 class WhatsAppMessageService
 {
     public function handle(WhatsAppMessageData $data): void
     {
+        // Store message in DB
+        WhatsAppMessage::create([
+            'sender' => $data->sender,
+            'chat' => $data->chat,
+            'type' => $data->type,
+            'content' => $data->content, // If file, store path here
+            'sending_time' => $data->sending_time,
+        ]);
+
         match ($data->type) {
             'text' => $this->handleTextMessage($data),
             'image' => $this->handleImageMessage($data),
@@ -20,21 +30,21 @@ class WhatsAppMessageService
 
     private function handleTextMessage(WhatsAppMessageData $data): void
     {
-        Log::channel('whatsapp')->info("Text von '{$data->from}' empfangen.", [
-            'message' => $data->body,
+        Log::channel('whatsapp')->info("Text von '{$data->sender}' empfangen.", [
+            'message' => $data->content,
         ]);
     }
 
     private function handleImageMessage(WhatsAppMessageData $data): void
     {
-        if (empty($data->media)) {
-            Log::channel('whatsapp')->error("Bildnachricht von '{$data->from}' ohne 'media'-Daten erhalten.");
+        if (empty($data->media) || empty($data->mimetype)) {
+            Log::channel('whatsapp')->error("Bildnachricht von '{$data->sender}' ohne 'media' oder 'mimetype' erhalten.");
             return;
         }
 
         $imageData = base64_decode($data->media);
         if ($imageData === false) {
-            Log::channel('whatsapp')->error("Konnte Base64-Bild von '{$data->from}' nicht dekodieren.");
+            Log::channel('whatsapp')->error("Konnte Base64-Bild von '{$data->sender}' nicht dekodieren.");
             return;
         }
 
@@ -44,8 +54,15 @@ class WhatsAppMessageService
 
         // Datei mit Laravel Storage speichern (z.B. im `storage/app/public`-Ordner)
         if (Storage::disk('public')->put($filename, $imageData)) {
-            Log::channel('whatsapp')->info("Bild von '{$data->from}' empfangen und gespeichert.", [
-                'caption' => $data->body,
+            // Update the message record with the image path
+            WhatsAppMessage::create([
+                'sender' => $data->sender,
+                'chat' => $data->chat,
+                'type' => $data->type,
+                'content' => $filename, // Store file path in content
+                'sending_time' => $data->sending_time,
+            ]);
+            Log::channel('whatsapp')->info("Bild von '{$data->sender}' empfangen und gespeichert.", [
                 'path' => $filename,
             ]);
         } else {
@@ -55,6 +72,6 @@ class WhatsAppMessageService
 
     private function handleUnknownMessage(WhatsAppMessageData $data): void
     {
-        Log::channel('whatsapp')->warning("Unbekannter Nachrichtentyp '{$data->type}' von '{$data->from}' empfangen.");
+        Log::channel('whatsapp')->warning("Unbekannter Nachrichtentyp '{$data->type}' von '{$data->sender}' empfangen.");
     }
 }

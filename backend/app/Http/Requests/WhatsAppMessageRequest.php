@@ -26,11 +26,13 @@ class WhatsAppMessageRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'from' => 'required|string',
-            'type' => ['required', Rule::in(['text', 'image'])],
-            'body' => 'nullable|string', // Bei Bildern ist 'body' die Caption
-            'media' => 'required_if:type,image|string', // Base64-String
-            'mimetype' => 'required_if:type,image|string|starts_with:image/',
+            'sender' => ['required', 'string', 'max:255'],
+            'chat' => ['required', 'string', 'max:255'],
+            'type' => ['required', 'string', 'max:50'],
+            'content' => ['nullable', 'string'],
+            'sending_time' => ['nullable', 'date'],
+            'media' => ['nullable', 'string'],
+            'mimetype' => ['nullable', 'string', 'starts_with:image/'],
         ];
     }
 }

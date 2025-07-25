@@ -1,3 +1,70 @@
+# WhatsApp Bot Abiplanung Backend
+
+This is the Laravel backend for the WhatsApp Bot Abiplanung project. It provides REST API endpoints for storing and retrieving WhatsApp messages (text and images), and is designed to work with a Vue 3 + TypeScript + Tailwind frontend dashboard.
+
+## Getting Started
+
+### 1. Clone the repository
+```bash
+# Clone the repo and cd into backend
+git clone <your-repo-url>
+cd backend
+```
+
+### 2. Install dependencies
+```bash
+composer install
+```
+
+### 3. Environment setup
+- Copy `.env.example` to `.env` and adjust settings as needed:
+  ```bash
+  cp .env.example .env
+  ```
+- Generate application key:
+  ```bash
+  php artisan key:generate
+  ```
+- Set up your database credentials in `.env`.
+- (Optional) For testing, copy `.env` to `.env.testing` and use a separate test database or SQLite.
+
+### 4. Run migrations
+```bash
+php artisan migrate
+```
+
+### 5. Storage link (for serving uploaded images)
+```bash
+php artisan storage:link
+```
+
+### 6. Run the development server
+```bash
+php artisan serve
+```
+
+### 7. Run tests
+```bash
+php artisan test
+```
+
+## API Endpoints
+- `POST /api/whatsapp-webhook` — Receive WhatsApp messages (used by the bot/receiver, not the frontend)
+- `GET /api/messages` — List messages (paginated, filterable)
+- `GET /api/messages/{id}` — Get a single message
+- `DELETE /api/messages/{id}` — Delete a message
+
+## Environment Variables
+See `.env.example` for all required variables. Key settings:
+- `DB_CONNECTION`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` — Database config
+- `APP_KEY` — Application key (generated)
+- `FILESYSTEM_DISK=public` — For image uploads
+
+## Frontend
+The recommended frontend is a Vue 3 + TypeScript + Tailwind SPA (see `/frontend`).
+
+---
+
 <p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
 
 <p align="center">
