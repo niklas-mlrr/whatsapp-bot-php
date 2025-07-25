@@ -3,20 +3,19 @@ const express = require('express');
 const bodyParser = require('body-parser');
 
 let sockInstance = null;
-let sockState = null;
+let isConnected = false;
 
 async function start() {
     sockInstance = await connectToWhatsApp();
-    sockState = sockInstance.state;
 
     // Listen for connection updates and always use the latest socket instance
     if (sockInstance.ev && sockInstance.ev.on) {
         sockInstance.ev.on('connection.update', (update) => {
             if (update.connection === 'open') {
-                sockInstance = sockInstance; // re-assign to ensure reference is up to date
-                sockState = sockInstance.state;
+                isConnected = true;
                 console.log('Socket reconnected and updated.');
             } else if (update.connection === 'close') {
+                isConnected = false;
                 console.log('Socket connection closed.');
             }
         });
@@ -31,9 +30,9 @@ async function start() {
             console.log('sockInstance is not initialized');
             return res.status(500).json({ error: 'WhatsApp socket not initialized' });
         }
-        console.log('sockInstance.state:', sockInstance.state);
-        if (!sockInstance.state || sockInstance.state.connection !== 'open') {
-            console.log('sockInstance.state.connection:', sockInstance.state ? sockInstance.state.connection : undefined);
+        console.log('isConnected:', isConnected);
+        if (!isConnected) {
+            console.log('WhatsApp socket not connected');
             return res.status(500).json({ error: 'WhatsApp socket not connected' });
         }
         const { chat, type, content, media, mimetype } = req.body;
