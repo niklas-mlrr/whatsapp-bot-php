@@ -61,7 +61,7 @@ async function start() {
 
 // Prevent multiple Node processes (simple lock file approach)
 const fs = require('fs');
-const lockFile = '/tmp/whatsapp-bot.lock';
+const lockFile = './whatsapp-bot.lock';
 if (fs.existsSync(lockFile)) {
     console.error('Another instance of the receiver is already running. Exiting.');
     process.exit(1);
