@@ -20,7 +20,8 @@ function sendToPHP(payload) {
     console.log("Sending to PHP:", JSON.stringify(logPayload, null, 2));
 
 
-    fetch("https://abiplanung.untis-notify.de/backend/src/controller/WhatsAppWebhookController.php", {
+    //fetch("https://abiplanung.untis-notify.de/backend/src/controller/WhatsAppWebhookController.php", {
+    fetch("http://192.168.178.84:8000/api/whatsapp-webhook", {
         method: "POST",
         headers: {
             "Content-Type": "application/json",

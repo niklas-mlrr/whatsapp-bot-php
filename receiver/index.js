@@ -11,10 +11,14 @@ async function start() {
     app.use(bodyParser.json({ limit: '10mb' }));
 
     app.post('/send-message', async (req, res) => {
+        console.log('Received send-message request');
         if (!sockInstance) {
+            console.log('sockInstance is not initialized');
             return res.status(500).json({ error: 'WhatsApp socket not initialized' });
         }
+        console.log('sockInstance.state:', sockInstance.state);
         if (!sockInstance.state || sockInstance.state.connection !== 'open') {
+            console.log('sockInstance.state.connection:', sockInstance.state ? sockInstance.state.connection : undefined);
             return res.status(500).json({ error: 'WhatsApp socket not connected' });
         }
         const { chat, type, content, media, mimetype } = req.body;
