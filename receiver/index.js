@@ -3,9 +3,24 @@ const express = require('express');
 const bodyParser = require('body-parser');
 
 let sockInstance = null;
+let sockState = null;
 
 async function start() {
     sockInstance = await connectToWhatsApp();
+    sockState = sockInstance.state;
+
+    // Listen for connection updates and always use the latest socket instance
+    if (sockInstance.ev && sockInstance.ev.on) {
+        sockInstance.ev.on('connection.update', (update) => {
+            if (update.connection === 'open') {
+                sockInstance = sockInstance; // re-assign to ensure reference is up to date
+                sockState = sockInstance.state;
+                console.log('Socket reconnected and updated.');
+            } else if (update.connection === 'close') {
+                console.log('Socket connection closed.');
+            }
+        });
+    }
 
     const app = express();
     app.use(bodyParser.json({ limit: '10mb' }));
@@ -42,6 +57,21 @@ async function start() {
     app.listen(PORT, () => {
         console.log(`Express server listening on port ${PORT}`);
     });
+}
+
+// Prevent multiple Node processes (simple lock file approach)
+const fs = require('fs');
+const lockFile = '/tmp/whatsapp-bot.lock';
+if (fs.existsSync(lockFile)) {
+    console.error('Another instance of the receiver is already running. Exiting.');
+    process.exit(1);
+} else {
+    fs.writeFileSync(lockFile, process.pid.toString());
+    process.on('exit', () => {
+        if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);
+    });
+    process.on('SIGINT', () => process.exit(0));
+    process.on('SIGTERM', () => process.exit(0));
 }
 
 start().catch(err => {
