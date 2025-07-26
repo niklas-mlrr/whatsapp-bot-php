@@ -84,7 +84,7 @@ class WhatsAppMessageController extends Controller
                 'mimetype' => $data['mimetype'] ?? null,
             ];
 
-            // If this is an image message, include the full URL to the media
+            // If this is an image message, include the full path to the media
             if ($data['type'] === 'image' && !empty($data['media'])) {
                 \Log::info('Processing image message', [
                     'media' => $data['media'],
@@ -95,14 +95,13 @@ class WhatsAppMessageController extends Controller
                 if (filter_var($data['media'], FILTER_VALIDATE_URL)) {
                     $sendPayload['media'] = $data['media'];
                 } 
-                // If media is a path, convert it to a full URL
+                // If media is a path, use the local filesystem path
                 else if (Storage::exists($data['media'])) {
-                    $sendPayload['media'] = Storage::url($data['media']);
-                    // Make sure the URL is absolute
-                    if (strpos($sendPayload['media'], 'http') !== 0) {
-                        $baseUrl = rtrim(config('app.url'), '/');
-                        $sendPayload['media'] = $baseUrl . '/' . ltrim($sendPayload['media'], '/');
-                    }
+                    // Get the full local path to the file
+                    $sendPayload['media'] = Storage::disk('public')->path(
+                        str_replace('uploads/', '', $data['media'])
+                    );
+                    \Log::info('Using local file path for receiver', ['path' => $sendPayload['media']]);
                 }
                 
                 // Ensure we have a valid media URL
@@ -148,6 +147,76 @@ class WhatsAppMessageController extends Controller
                 'payload' => $sendPayload
             ]);
             return response()->json(['status' => 'error', 'message' => 'Internal Server Error'], 500);
+        }
+    }
+    
+    // GET /api/chats - Get list of unique chat names
+    public function chats(): JsonResponse
+    {
+        try {
+            $chats = WhatsAppMessage::query()
+                ->select('chat')
+                ->distinct()
+                ->orderBy('chat')
+                ->pluck('chat');
+                
+            return response()->json(['data' => $chats]);
+        } catch (\Exception $e) {
+            \Log::error('Failed to fetch chats', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to fetch chats',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+    
+    /**
+     * Handle image uploads
+     * 
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function upload(Request $request): JsonResponse
+    {
+        try {
+            $request->validate([
+                'file' => 'required|file|image|max:10240', // max 10MB
+            ]);
+            
+            // Ensure the uploads directory exists
+            $path = $request->file('file')->store('uploads', 'public');
+            
+            // Get the full URL to the uploaded file
+            $url = url(Storage::url($path));
+            
+            // Make sure the URL is absolute
+            if (strpos($url, 'http') !== 0) {
+                $url = url($url);
+            }
+            
+            return response()->json([
+                'status' => 'success',
+                'path' => $path,
+                'url' => $url,
+                'mimetype' => $request->file('file')->getMimeType()
+            ]);
+            
+        } catch (\Exception $e) {
+            \Log::error('Failed to upload image', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to upload image',
+                'error' => $e->getMessage()
+            ], 500);
         }
     }
 }

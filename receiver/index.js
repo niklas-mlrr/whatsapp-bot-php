@@ -67,7 +67,7 @@ async function start() {
             } else if (type === 'image' && media) {
                 console.log('Processing image message for', chat);
                 try {
-                    // Check if media is a URL or base64 data
+                    // Check if media is a URL, local file, or base64 data
                     if (media.startsWith('http')) {
                         console.log('Downloading image from URL:', media);
                         // Download the image from the URL
@@ -98,6 +98,25 @@ async function start() {
                                 caption: content || '' 
                             },
                             { 
+                                quoted: null,
+                                upload: true
+                            }
+                        );
+                    } else if (fs.existsSync(media)) {
+                        console.log('Reading local file:', media);
+                        // Read the local file
+                        const fileData = fs.readFileSync(media);
+                        const actualMimetype = mimetype || 'image/jpeg';
+                        
+                        console.log('Sending local file to WhatsApp');
+                        await sockInstance.sendMessage(
+                            chat,
+                            {
+                                image: fileData,
+                                mimetype: actualMimetype,
+                                caption: content || ''
+                            },
+                            {
                                 quoted: null,
                                 upload: true
                             }
