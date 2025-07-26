@@ -95,13 +95,25 @@ class WhatsAppMessageController extends Controller
                 if (filter_var($data['media'], FILTER_VALIDATE_URL)) {
                     $sendPayload['media'] = $data['media'];
                 } 
-                // If media is a path, use the local filesystem path
+                // If media is a path, read the file and send as base64
                 else if (Storage::exists($data['media'])) {
-                    // Get the full local path to the file
-                    $sendPayload['media'] = Storage::disk('public')->path(
-                        str_replace('uploads/', '', $data['media'])
-                    );
-                    \Log::info('Using local file path for receiver', ['path' => $sendPayload['media']]);
+                    // Get the correct path to the file
+                    $filePath = Storage::path($data['media']);
+                    
+                    \Log::info('Attempting to read file', [
+                        'storage_path' => $filePath,
+                        'relative_path' => $data['media']
+                    ]);
+                    
+                    if (file_exists($filePath)) {
+                        $fileContents = file_get_contents($filePath);
+                        $base64 = base64_encode($fileContents);
+                        $sendPayload['media'] = 'data:' . ($data['mimetype'] ?? 'image/jpeg') . ';base64,' . $base64;
+                        \Log::info('Converted local file to base64', ['size' => strlen($base64) . ' bytes']);
+                    } else {
+                        \Log::error('File does not exist at path', ['path' => $filePath]);
+                        throw new \Exception('File does not exist at path: ' . $filePath);
+                    }
                 }
                 
                 // Ensure we have a valid media URL

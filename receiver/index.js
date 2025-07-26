@@ -130,19 +130,23 @@ async function start() {
                         }
                         
                         const buffer = Buffer.from(matches[2], 'base64');
-                        console.log('Sending base64 image to WhatsApp');
-                        await sockInstance.sendMessage(
-                            chat, 
-                            { 
-                                image: buffer, 
-                                mimetype: matches[1],
-                                caption: content || '' 
-                            },
-                            { 
-                                quoted: null,
-                                upload: true
-                            }
-                        );
+                        const actualMimetype = mimetype || matches[1];
+                        
+                        console.log('Sending base64 image to WhatsApp', {
+                            size: buffer.length,
+                            mimetype: actualMimetype
+                        });
+                        
+                        // Create message object with media
+                        const message = {
+                            image: buffer,
+                            mimetype: actualMimetype,
+                            caption: content || ''
+                        };
+                        
+                        // Send the message with the correct options
+                        const sendOptions = { quoted: null };
+                        await sockInstance.sendMessage(chat, message, sendOptions);
                     } else {
                         throw new Error('Unsupported media format. Must be a URL or data URI');
                     }
