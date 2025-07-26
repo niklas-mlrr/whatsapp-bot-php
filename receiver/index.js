@@ -31,34 +31,64 @@ async function start() {
     app.use(bodyParser.json({ limit: '10mb' }));
 
     app.post('/send-message', async (req, res) => {
-        console.log('Received send-message request');
+        console.log('Received send-message request:', {
+            chat: req.body.chat,
+            type: req.body.type,
+            contentLength: req.body.content?.length,
+            mediaType: req.body.media ? 'present' : 'missing',
+            mimetype: req.body.mimetype
+        });
+
         if (!sockInstance) {
-            console.log('sockInstance is not initialized');
-            return res.status(500).json({ error: 'WhatsApp socket not initialized' });
+            const error = 'WhatsApp socket not initialized';
+            console.error(error);
+            return res.status(500).json({ error });
         }
-        console.log('isConnected:', isConnected);
+        
         if (!isConnected) {
-            console.log('WhatsApp socket not connected');
-            return res.status(500).json({ error: 'WhatsApp socket not connected' });
+            const error = 'WhatsApp socket not connected';
+            console.error(error);
+            return res.status(500).json({ error });
         }
+
         const { chat, type, content, media, mimetype } = req.body;
+        
+        // Validate required fields
+        if (!chat || !type) {
+            const error = 'Missing required fields: chat and type are required';
+            console.error(error);
+            return res.status(400).json({ error });
+        }
+
         try {
             if (type === 'text') {
-                await sockInstance.sendMessage(chat, { text: content });
+                console.log('Sending text message to', chat);
+                await sockInstance.sendMessage(chat, { text: content || '' });
             } else if (type === 'image' && media) {
+                console.log('Processing image message for', chat);
                 try {
                     // Check if media is a URL or base64 data
                     if (media.startsWith('http')) {
+                        console.log('Downloading image from URL:', media);
                         // Download the image from the URL
                         const response = await axios({
                             method: 'GET',
                             url: media,
-                            responseType: 'arraybuffer'
+                            responseType: 'arraybuffer',
+                            timeout: 30000, // 30 seconds timeout
+                            validateStatus: status => status < 500 // Don't throw for 4xx errors
                         });
+
+                        if (response.status !== 200) {
+                            throw new Error(`Failed to download image: ${response.status} ${response.statusText}`);
+                        }
                         
                         // Get the actual MIME type from response headers if not provided
-                        const actualMimetype = mimetype || response.headers['content-type'] || 'image/jpeg';
+                        const actualMimetype = mimetype || 
+                                            response.headers['content-type'] || 
+                                            'image/jpeg';
                         
+                        console.log('Sending image to WhatsApp');
                         // Send the image to WhatsApp
                         await sockInstance.sendMessage(
                             chat, 
@@ -66,9 +96,14 @@ async function start() {
                                 image: response.data, 
                                 mimetype: actualMimetype,
                                 caption: content || '' 
+                            },
+                            { 
+                                quoted: null,
+                                upload: true
                             }
                         );
                     } else if (media.startsWith('data:')) {
+                        console.log('Processing base64 image data');
                         // Handle base64 data URL
                         const matches = media.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
                         if (!matches || matches.length !== 3) {
@@ -76,28 +111,55 @@ async function start() {
                         }
                         
                         const buffer = Buffer.from(matches[2], 'base64');
+                        console.log('Sending base64 image to WhatsApp');
                         await sockInstance.sendMessage(
                             chat, 
                             { 
                                 image: buffer, 
                                 mimetype: matches[1],
                                 caption: content || '' 
+                            },
+                            { 
+                                quoted: null,
+                                upload: true
                             }
                         );
                     } else {
-                        throw new Error('Unsupported media format');
+                        throw new Error('Unsupported media format. Must be a URL or data URI');
                     }
                 } catch (error) {
-                    console.error('Error processing image:', error);
+                    console.error('Error processing image:', {
+                        error: error.message,
+                        stack: error.stack,
+                        mediaType: typeof media,
+                        mediaLength: media?.length,
+                        mediaStart: media?.substring(0, 100)
+                    });
                     throw new Error(`Failed to process image: ${error.message}`);
                 }
             } else {
-                return res.status(400).json({ error: 'Unsupported message type or missing fields' });
+                const error = 'Unsupported message type or missing media for image type';
+                console.error(error);
+                return res.status(400).json({ error });
             }
+            
+            console.log('Message sent successfully to', chat);
             res.json({ status: 'sent' });
+            
         } catch (err) {
-            console.error('Failed to send message:', err);
-            res.status(500).json({ error: 'Failed to send message', details: err.message });
+            console.error('Failed to send message:', {
+                error: err.message,
+                stack: err.stack,
+                chat,
+                type,
+                hasMedia: !!media,
+                mediaType: media?.substring(0, 20) + (media?.length > 20 ? '...' : '')
+            });
+            res.status(500).json({ 
+                error: 'Failed to send message', 
+                details: err.message,
+                type: err.name
+            });
         }
     });
 
