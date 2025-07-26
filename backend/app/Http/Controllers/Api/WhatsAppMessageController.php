@@ -109,7 +109,10 @@ class WhatsAppMessageController extends Controller
                         $fileContents = file_get_contents($filePath);
                         $base64 = base64_encode($fileContents);
                         $sendPayload['media'] = 'data:' . ($data['mimetype'] ?? 'image/jpeg') . ';base64,' . $base64;
-                        \Log::info('Converted local file to base64', ['size' => strlen($base64) . ' bytes']);
+                        \Log::info('Converted local file to base64', [
+                            'size' => strlen($base64) . ' bytes',
+                            'file' => basename($filePath)
+                        ]);
                     } else {
                         \Log::error('File does not exist at path', ['path' => $filePath]);
                         throw new \Exception('File does not exist at path: ' . $filePath);
@@ -152,6 +155,14 @@ class WhatsAppMessageController extends Controller
                 
                 return response()->json($errorResponse, 500);
             }
+            
+            // If we get here, the message was sent successfully
+            $message = WhatsAppMessage::findOrFail($message->id);
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Message sent successfully',
+                'data' => new WhatsAppMessageResource($message)
+            ]);
         } catch (\Exception $e) {
             \Log::error('Error sending message to receiver', [
                 'exception' => $e->getMessage(),

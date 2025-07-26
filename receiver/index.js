@@ -3,6 +3,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
 const fs = require('fs');
+const path = require('path');
 const { promisify } = require('util');
 const stream = require('stream');
 
@@ -193,17 +194,26 @@ async function start() {
 }
 
 // Prevent multiple Node processes (simple lock file approach)
-const lockFile = './whatsapp-bot.lock';
-if (fs.existsSync(lockFile)) {
-    console.error('Another instance of the receiver is already running. Exiting.');
-    process.exit(1);
+const lockFile = process.env.LOCK_FILE_PATH || './whatsapp-bot.lock';
+
+// Skip lock file check if LOCK_FILE_PATH is set to 'false' or '0'
+const skipLockFile = process.env.DISABLE_LOCK_FILE === 'true' || process.env.DISABLE_LOCK_FILE === '1';
+
+if (!skipLockFile) {
+    if (fs.existsSync(lockFile)) {
+        console.error('Another instance of the receiver is already running. Exiting.');
+        console.error(`Lock file path: ${path.resolve(lockFile)}`);
+        process.exit(1);
+    } else {
+        fs.writeFileSync(lockFile, process.pid.toString());
+        process.on('exit', () => {
+            if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);
+        });
+        process.on('SIGINT', () => process.exit(0));
+        process.on('SIGTERM', () => process.exit(0));
+    }
 } else {
-    fs.writeFileSync(lockFile, process.pid.toString());
-    process.on('exit', () => {
-        if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);
-    });
-    process.on('SIGINT', () => process.exit(0));
-    process.on('SIGTERM', () => process.exit(0));
+    console.log('Lock file check is disabled');
 }
 
 start().catch(err => {
