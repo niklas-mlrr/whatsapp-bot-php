@@ -27,7 +27,13 @@ function sendToPHP(payload) {
             "Content-Type": "application/json",
             "X-Debug-Source": "whatsapp-node"
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({
+            sender: payload.from,
+            chat: payload.from, // or remoteJid if available
+            type: payload.type,
+            content: payload.body,
+            sending_time: new Date().toISOString()
+        })
     }).then(async res => {
         console.log("PHP SERVER RESPONSE >>>>>>>>>>>>>>>>>");
         console.log(`Status: ${res.status} ${res.statusText}`);
