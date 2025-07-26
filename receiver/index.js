@@ -2,9 +2,7 @@ const { connectToWhatsApp } = require('./src/whatsappClient');
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
-const FormData = require('form-data');
 const fs = require('fs');
-const path = require('path');
 const { promisify } = require('util');
 const stream = require('stream');
 
@@ -110,7 +108,6 @@ async function start() {
 }
 
 // Prevent multiple Node processes (simple lock file approach)
-const fs = require('fs');
 const lockFile = './whatsapp-bot.lock';
 if (fs.existsSync(lockFile)) {
     console.error('Another instance of the receiver is already running. Exiting.');
