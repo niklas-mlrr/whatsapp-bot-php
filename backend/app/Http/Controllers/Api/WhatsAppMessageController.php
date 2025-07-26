@@ -74,12 +74,42 @@ class WhatsAppMessageController extends Controller
                 'chat' => $data['chat'],
                 'type' => $data['type'],
                 'content' => $data['content'] ?? '',
-                'media' => $data['media'] ?? null,
+                'media' => null,
                 'mimetype' => $data['mimetype'] ?? null,
             ];
-            $response = Http::timeout(10)->post($receiverUrl, $sendPayload);
+
+            // If this is an image message, include the full URL to the media
+            if ($data['type'] === 'image' && !empty($data['media'])) {
+                // If media is a URL, use it directly
+                if (filter_var($data['media'], FILTER_VALIDATE_URL)) {
+                    $sendPayload['media'] = $data['media'];
+                } 
+                // If media is a path, convert it to a full URL
+                else if (Storage::exists($data['media'])) {
+                    $sendPayload['media'] = Storage::url($data['media']);
+                }
+                
+                // Ensure we have a valid media URL
+                if (empty($sendPayload['media'])) {
+                    return response()->json(['status' => 'error', 'message' => 'Invalid media file'], 400);
+                }
+                
+                // Make sure the URL is absolute
+                if (strpos($sendPayload['media'], 'http') !== 0) {
+                    $sendPayload['media'] = url($sendPayload['media']);
+                }
+            }
+
+            $response = Http::timeout(30)->post($receiverUrl, $sendPayload);
+            
             if (!$response->ok()) {
-                return response()->json(['status' => 'error', 'message' => 'Failed to send message to WhatsApp', 'details' => $response->body()], 500);
+                return response()->json([
+                    'status' => 'error', 
+                    'message' => 'Failed to send message to WhatsApp', 
+                    'details' => $response->body(),
+                    'receiver_url' => $receiverUrl,
+                    'payload' => $sendPayload
+                ], 500);
             }
         } catch (\Exception $e) {
             return response()->json(['status' => 'error', 'message' => 'Failed to send message to WhatsApp', 'details' => $e->getMessage()], 500);

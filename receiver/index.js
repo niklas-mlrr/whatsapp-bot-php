@@ -1,6 +1,14 @@
 const { connectToWhatsApp } = require('./src/whatsappClient');
 const express = require('express');
 const bodyParser = require('body-parser');
+const axios = require('axios');
+const FormData = require('form-data');
+const fs = require('fs');
+const path = require('path');
+const { promisify } = require('util');
+const stream = require('stream');
+
+const pipeline = promisify(stream.pipeline);
 
 let sockInstance = null;
 let isConnected = false;
@@ -39,9 +47,52 @@ async function start() {
         try {
             if (type === 'text') {
                 await sockInstance.sendMessage(chat, { text: content });
-            } else if (type === 'image' && media && mimetype) {
-                const buffer = Buffer.from(media, 'base64');
-                await sockInstance.sendMessage(chat, { image: buffer, mimetype, caption: content || '' });
+            } else if (type === 'image' && media) {
+                try {
+                    // Check if media is a URL or base64 data
+                    if (media.startsWith('http')) {
+                        // Download the image from the URL
+                        const response = await axios({
+                            method: 'GET',
+                            url: media,
+                            responseType: 'arraybuffer'
+                        });
+                        
+                        // Get the actual MIME type from response headers if not provided
+                        const actualMimetype = mimetype || response.headers['content-type'] || 'image/jpeg';
+                        
+                        // Send the image to WhatsApp
+                        await sockInstance.sendMessage(
+                            chat, 
+                            { 
+                                image: response.data, 
+                                mimetype: actualMimetype,
+                                caption: content || '' 
+                            }
+                        );
+                    } else if (media.startsWith('data:')) {
+                        // Handle base64 data URL
+                        const matches = media.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+                        if (!matches || matches.length !== 3) {
+                            throw new Error('Invalid base64 image data');
+                        }
+                        
+                        const buffer = Buffer.from(matches[2], 'base64');
+                        await sockInstance.sendMessage(
+                            chat, 
+                            { 
+                                image: buffer, 
+                                mimetype: matches[1],
+                                caption: content || '' 
+                            }
+                        );
+                    } else {
+                        throw new Error('Unsupported media format');
+                    }
+                } catch (error) {
+                    console.error('Error processing image:', error);
+                    throw new Error(`Failed to process image: ${error.message}`);
+                }
             } else {
                 return res.status(400).json({ error: 'Unsupported message type or missing fields' });
             }
