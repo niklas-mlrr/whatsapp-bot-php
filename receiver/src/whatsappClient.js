@@ -2,8 +2,8 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLat
 const { Boom } = require('@hapi/boom');
 const pino = require('pino');
 const config = require('./config');
+const { logger } = require('./logger');
 const { handleMessages } = require('./messageHandler');
-const logger = require('./logger');
 
 /**
  * Establishes a connection to the WhatsApp Web service.
