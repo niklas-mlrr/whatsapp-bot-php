@@ -2,12 +2,8 @@
 
 namespace App\Console\Commands;
 
-use BeyondCode\LaravelWebSockets\Dashboard\DashboardLogger;
-use BeyondCode\LaravelWebSockets\WebSockets\Channels\ChannelManager;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
-use Ratchet\ConnectionInterface;
-use Ratchet\RFC6455\Messaging\MessageInterface;
 
 class MonitorWebSockets extends Command
 {
@@ -26,22 +22,13 @@ class MonitorWebSockets extends Command
     protected $description = 'Monitor WebSocket connections and statistics';
 
     /**
-     * The WebSocket channel manager instance.
-     *
-     * @var \BeyondCode\LaravelWebSockets\WebSockets\Channels\ChannelManager
-     */
-    protected $channelManager;
-
-    /**
      * Create a new command instance.
      *
-     * @param  \BeyondCode\LaravelWebSockets\WebSockets\Channels\ChannelManager  $channelManager
      * @return void
      */
-    public function __construct(ChannelManager $channelManager)
+    public function __construct()
     {
         parent::__construct();
-        $this->channelManager = $channelManager;
     }
 
     /**
@@ -102,14 +89,14 @@ class MonitorWebSockets extends Command
      * Handle connection events.
      *
      * @param  string  $event
-     * @param  \Ratchet\ConnectionInterface  $connection
+     * @param  mixed  $connection
      * @return void
      */
     protected function handleConnectionEvent($event, $connection)
     {
         $eventName = str_replace('connection.', '', $event);
-        $connectionId = $connection->socketId ?? 'unknown';
-        
+        $connectionId = $connection && method_exists($connection, 'getSocketId') ? $connection->getSocketId() : 'unknown';
+
         $this->table([], [
             [
                 now()->format('H:i:s'),
@@ -125,7 +112,7 @@ class MonitorWebSockets extends Command
      * Handle channel events.
      *
      * @param  string  $event
-     * @param  \Ratchet\ConnectionInterface  $connection
+     * @param  mixed  $connection
      * @param  string  $channel
      * @return void
      */
@@ -133,7 +120,7 @@ class MonitorWebSockets extends Command
     {
         $eventName = str_replace('channel.', '', $event);
         $channelName = $channel ?? 'unknown';
-        
+
         $this->table([], [
             [
                 now()->format('H:i:s'),
@@ -149,16 +136,17 @@ class MonitorWebSockets extends Command
      * Handle message events.
      *
      * @param  string  $event
-     * @param  \Ratchet\ConnectionInterface  $connection
-     * @param  \Ratchet\RFC6455\Messaging\MessageInterface  $message
+     * @param  mixed  $connection
+     * @param  mixed  $message
      * @return void
      */
     protected function handleMessageEvent($event, $connection, $message)
     {
         $eventName = str_replace('message.', '', $event);
-        $messageData = json_decode($message->getPayload(), true);
+        $messageData = method_exists($message, 'getPayload') ?
+            json_decode($message->getPayload(), true) : [];
         $channel = $messageData['channel'] ?? 'unknown';
-        
+
         $this->table([], [
             [
                 now()->format('H:i:s'),
@@ -195,7 +183,14 @@ class MonitorWebSockets extends Command
      */
     protected function getConnectionCount(): int
     {
-        return count($this->channelManager->getConnections());
+        try {
+            // Alternative way to get connection count if the table exists
+            return DB::table('websockets_statistics_entries')
+                ->where('created_at', '>', now()->subMinutes(5))
+                ->sum('peak_connection_count') ?: 0;
+        } catch (\Exception $e) {
+            return 0;
+        }
     }
 
     /**
@@ -205,9 +200,13 @@ class MonitorWebSockets extends Command
      */
     protected function getMessageCount(): int
     {
-        return DB::table('websockets_statistics_entries')
-            ->sum('websocket_message_count') + 
-            DB::table('websockets_statistics_entries')
-                ->sum('api_message_count');
+        try {
+            return DB::table('websockets_statistics_entries')
+                ->sum('websocket_message_count') +
+                DB::table('websockets_statistics_entries')
+                    ->sum('api_message_count');
+        } catch (\Exception $e) {
+            return 0;
+        }
     }
 }

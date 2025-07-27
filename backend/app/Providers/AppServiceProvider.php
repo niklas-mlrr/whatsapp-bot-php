@@ -5,7 +5,6 @@ namespace App\Providers;
 use App\Models\Chat;
 use App\Policies\ChatPolicy;
 use App\Services\ChatService;
-use App\Services\EnhancedWebSocketService;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
@@ -29,14 +28,6 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(ChatService::class, function ($app) {
             return new ChatService();
         });
-
-        // Register the EnhancedWebSocketService
-        $this->app->singleton(EnhancedWebSocketService::class, function ($app) {
-            return new EnhancedWebSocketService();
-        });
-
-        // Alias for backward compatibility
-        $this->app->alias(EnhancedWebSocketService::class, 'websocket');
     }
 
     /**

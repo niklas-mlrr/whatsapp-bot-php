@@ -1,5 +1,6 @@
-import { ref, onUnmounted } from 'vue';
+import { ref, onUnmounted, type Ref } from 'vue';
 import Echo from 'laravel-echo';
+import type { EchoOptions } from 'laravel-echo';
 import Pusher from 'pusher-js';
 import { useAuthStore } from '@/stores/auth';
 
@@ -57,13 +58,13 @@ export function useWebSocket(): WebSocketService {
   const authStore = useAuthStore();
   const isConnected = ref(false);
   const socketId = ref<string | null>(null);
-  let echo: Echo | null = null;
+  let echo: any = null;
   
   // Store channel instances and their callbacks
   const privateChannels = new Map<string, any>();
   const messageCallbacks = new Map<string, Set<(message: MessageEvent) => void>>();
   const typingCallbacks = new Map<string, Set<(event: TypingEvent) => void>>();
-  const readReceiptCallbacks = new Map<string, Set<(event: ReadReceiptEvent) => void>>>();
+  const readReceiptCallbacks = new Map<string, Set<(event: ReadReceiptEvent) => void>>();
   
   // Connect to WebSocket server
   const connect = async (): Promise<boolean> => {
