@@ -15,24 +15,73 @@ class WhatsAppMessageController extends Controller
     // GET /api/messages
     public function index(Request $request): JsonResponse
     {
+        $validated = $request->validate([
+            'chat' => 'nullable|string|max:255',
+            'sender' => 'nullable|string|max:255',
+            'type' => 'nullable|string|in:text,image,video,audio,document,location,contact,unknown',
+            'direction' => 'nullable|string|in:incoming,outgoing',
+            'status' => 'nullable|string|in:pending,sent,delivered,read,failed',
+            'search' => 'nullable|string|max:255',
+            'from' => 'nullable|date',
+            'to' => 'nullable|date|after_or_equal:from',
+            'per_page' => 'nullable|integer|min:1|max:100',
+            'page' => 'nullable|integer|min:1',
+            'sort_by' => 'nullable|string|in:sending_time,created_at,updated_at',
+            'sort_order' => 'nullable|string|in:asc,desc',
+        ]);
+
         $query = WhatsAppMessage::query();
 
-        // Optional: Filtering by sender, chat, type, date, etc.
-        if ($request->filled('sender')) {
-            $query->where('sender', $request->input('sender'));
-        }
-        if ($request->filled('type')) {
-            $query->where('type', $request->input('type'));
-        }
+        // Apply filters
         if ($request->filled('chat')) {
-            $query->where('chat', $request->input('chat'));
+            $query->where('chat', $validated['chat']);
         }
-        if ($request->filled('from') && $request->filled('to')) {
-            $query->whereBetween('sending_time', [$request->input('from'), $request->input('to')]);
+        
+        if ($request->filled('sender')) {
+            $query->where('sender', $validated['sender']);
+        }
+        
+        if ($request->filled('type')) {
+            $query->where('type', $validated['type']);
+        }
+        
+        if ($request->filled('direction')) {
+            $query->where('direction', $validated['direction']);
+        }
+        
+        if ($request->filled('status')) {
+            $query->where('status', $validated['status']);
+        }
+        
+        // Date range filter
+        if ($request->filled('from')) {
+            $query->where('sending_time', '>=', $validated['from']);
+        }
+        
+        if ($request->filled('to')) {
+            $query->where('sending_time', '<=', $validated['to'] . ' 23:59:59');
+        }
+        
+        // Search in content
+        if ($request->filled('search')) {
+            $searchTerm = '%' . $validated['search'] . '%';
+            $query->where(function($q) use ($searchTerm) {
+                $q->where('content', 'like', $searchTerm)
+                  ->orWhere('sender', 'like', $searchTerm)
+                  ->orWhere('chat', 'like', $searchTerm);
+            });
         }
 
-        $messages = $query->orderByDesc('sending_time')->paginate(20);
-        return WhatsAppMessageResource::collection($messages)->response();
+        // Sorting
+        $sortBy = $validated['sort_by'] ?? 'sending_time';
+        $sortOrder = $validated['sort_order'] ?? 'desc';
+        $query->orderBy($sortBy, $sortOrder);
+
+        // Pagination
+        $perPage = $validated['per_page'] ?? 20;
+        $messages = $query->paginate($perPage);
+
+        return WhatsAppMessageResource::collection($messages);
     }
 
     // GET /api/messages/{id}
@@ -173,17 +222,58 @@ class WhatsAppMessageController extends Controller
         }
     }
     
-    // GET /api/chats - Get list of unique chat names
-    public function chats(): JsonResponse
+    // GET /api/chats - Get list of chats with metadata
+    public function chats(Request $request): JsonResponse
     {
         try {
-            $chats = WhatsAppMessage::query()
-                ->select('chat')
-                ->distinct()
-                ->orderBy('chat')
-                ->pluck('chat');
+            $validated = $request->validate([
+                'search' => 'nullable|string|max:255',
+                'unread_only' => 'nullable|boolean',
+                'per_page' => 'nullable|integer|min:1|max:100',
+                'page' => 'nullable|integer|min:1',
+            ]);
+            
+            // Subquery to get the last message for each chat
+            $latestMessages = WhatsAppMessage::selectRaw('MAX(id) as last_message_id')
+                ->groupBy('chat');
                 
-            return response()->json(['data' => $chats]);
+            // Main query to get chat metadata
+            $query = WhatsAppMessage::select([
+                'chat',
+                'sender',
+                'sending_time as last_message_time',
+                'content as last_message_content',
+                'type as last_message_type',
+                'status as last_message_status',
+                'read_at as last_message_read_at',
+                \DB::raw('(SELECT COUNT(*) FROM messages AS unread_messages WHERE unread_messages.chat = messages.chat AND unread_messages.read_at IS NULL) as unread_count'),
+            ])
+            ->whereIn('id', $latestMessages)
+            ->orderBy('sending_time', 'desc');
+            
+            // Apply search filter
+            if ($request->filled('search')) {
+                $searchTerm = '%' . $validated['search'] . '%';
+                $query->where('chat', 'like', $searchTerm);
+            }
+            
+            // Filter unread only
+            if ($request->boolean('unread_only')) {
+                $query->having('unread_count', '>', 0);
+            }
+            
+            // Pagination
+            $perPage = $validated['per_page'] ?? 20;
+            $chats = $query->paginate($perPage);
+            
+            // Transform the results to include participants (assuming chat is a single participant for now)
+            $chats->getCollection()->transform(function ($chat) {
+                $chat->participants = [$chat->sender];
+                return $chat;
+            });
+            
+            return ChatResource::collection($chats);
+            
         } catch (\Exception $e) {
             \Log::error('Failed to fetch chats', [
                 'error' => $e->getMessage(),

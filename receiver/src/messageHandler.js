@@ -1,74 +1,343 @@
-const { downloadMediaMessage } = require('@whiskeysockets/baileys');
-const pino = require('pino');
+const { downloadMediaMessage, proto } = require('@whiskeysockets/baileys');
+const logger = require('./logger');
 const { sendToPHP } = require('./apiClient');
+const config = require('./config');
 
 /**
- * Verarbeitet eingehende Nachrichten-Events von Baileys.
- * @param {import('@whiskeysockets/baileys').WASocket} sock - Die Socket-Instanz.
- * @param {import('@whiskeysockets/baileys').BaileysEventMap['messages.upsert']} m - Das Nachrichten-Event-Objekt.
+ * Processes incoming message events from Baileys.
+ * @param {import('@whiskeysockets/baileys').WASocket} sock - The socket instance.
+ * @param {import('@whiskeysockets/baileys').BaileysEventMap['messages.upsert']} m - The message event object.
  */
 async function handleMessages(sock, m) {
-    console.log('Nachrichten-Event empfangen:', JSON.stringify(m, undefined, 2));
+    try {
+        logger.debug({ messageCount: m.messages.length, type: m.type }, 'Processing incoming messages');
 
-    for (const msg of m.messages) {
-        // Ignoriere eigene Nachrichten und fokussiere dich auf Benachrichtigungen
-        if (!msg.key.fromMe && m.type === 'notify') {
-            const remoteJid = msg.key.remoteJid;
-            const isGroup = remoteJid?.endsWith('@g.us');
-            console.log(`Nachricht von ${remoteJid} (${isGroup ? 'Gruppe' : 'Benutzer'}):`);
-
-            // 1. Reine Textnachrichten
-            if (msg.message?.conversation) {
-                console.log(`  Text: ${msg.message.conversation}`);
-                sendToPHP({
+        for (const msg of m.messages) {
+            // Skip our own messages and focus on notifications
+            if (!msg.key.fromMe && m.type === 'notify') {
+                const remoteJid = msg.key.remoteJid;
+                const isGroup = remoteJid?.endsWith('@g.us');
+                
+                logger.info({
                     from: remoteJid,
-                    type: 'text',
-                    body: msg.message.conversation
-                });
-            }
-            // 2. Erweiterte Textnachrichten (z.B. bei Antworten)
-            else if (msg.message?.extendedTextMessage) {
-                console.log(`  Erweiterter Text: ${msg.message.extendedTextMessage.text}`);
-                sendToPHP({
-                    from: remoteJid,
-                    type: 'text',
-                    body: msg.message.extendedTextMessage.text
-                });
-            }
-            // 3. Bildnachrichten
-            else if (msg.message?.imageMessage) {
-                console.log('  Bild empfangen. Lade Medium herunter...');
+                    isGroup,
+                    messageId: msg.key.id,
+                    messageType: Object.keys(msg.message || {})[0]
+                }, 'New message received');
 
+                // Handle different message types
                 try {
-                    const buffer = await downloadMediaMessage(
-                        msg,
-                        'buffer',
-                        {},
-                        {
-                            logger: pino(),
-                            reuploadRequest: sock.updateMediaMessage
-                        }
-                    );
-
-                    console.log('  Medium heruntergeladen, Größe:', buffer.length);
-                    const base64Image = buffer.toString('base64');
-                    const caption = msg.message.imageMessage.caption || '';
-                    const mimetype = msg.message.imageMessage.mimetype;
-
-                    sendToPHP({
-                        from: remoteJid,
-                        type: 'image',
-                        body: caption,
-                        media: base64Image,
-                        mimetype: mimetype
-                    });
-
+                    // 1. Simple text messages
+                    if (msg.message?.conversation) {
+                        await handleTextMessage(remoteJid, msg.message.conversation);
+                    }
+                    // 2. Extended text messages (e.g., with context)
+                    else if (msg.message?.extendedTextMessage) {
+                        const { text, contextInfo } = msg.message.extendedTextMessage;
+                        await handleTextMessage(remoteJid, text, contextInfo);
+                    }
+                    // 3. Image messages
+                    else if (msg.message?.imageMessage) {
+                        await handleImageMessage(sock, msg, remoteJid);
+                    }
+                    // 4. Video messages
+                    else if (msg.message?.videoMessage) {
+                        await handleVideoMessage(sock, msg, remoteJid);
+                    }
+                    // 5. Document messages
+                    else if (msg.message?.documentMessage) {
+                        await handleDocumentMessage(sock, msg, remoteJid);
+                    }
+                    // 6. Audio messages
+                    else if (msg.message?.audioMessage) {
+                        await handleAudioMessage(sock, msg, remoteJid);
+                    }
+                    // 7. Location messages
+                    else if (msg.message?.locationMessage) {
+                        await handleLocationMessage(msg, remoteJid);
+                    }
+                    // 8. Unsupported message types
+                    else {
+                        const messageType = Object.keys(msg.message || {})[0];
+                        logger.info({ messageType }, 'Unhandled message type');
+                    }
                 } catch (error) {
-                    console.error("Fehler beim Herunterladen des Bildes:", error);
+                    logger.error({
+                        error: error.message,
+                        stack: error.stack,
+                        messageId: msg.key.id,
+                        messageType: Object.keys(msg.message || {})[0]
+                    }, 'Error processing message');
                 }
             }
         }
+    } catch (error) {
+        logger.error({ error }, 'Unexpected error in handleMessages');
     }
 }
 
-module.exports = { handleMessages };
+/**
+ * Handles text messages.
+ * @param {string} remoteJid - The sender's JID.
+ * @param {string} text - The message text.
+ * @param {object} [contextInfo] - Additional context information.
+ */
+async function handleTextMessage(remoteJid, text, contextInfo = {}) {
+    logger.debug({ remoteJid, textLength: text.length, hasContext: !!contextInfo }, 'Processing text message');
+    
+    await sendToPHP({
+        from: remoteJid,
+        type: 'text',
+        body: text,
+        contextInfo: contextInfo || undefined
+    });
+}
+
+/**
+ * Handles image messages.
+ * @param {object} sock - The socket instance.
+ * @param {object} msg - The message object.
+ * @param {string} remoteJid - The sender's JID.
+ */
+async function handleImageMessage(sock, msg, remoteJid) {
+    logger.debug({ remoteJid }, 'Processing image message');
+    
+    try {
+        const buffer = await downloadMediaMessage(
+            msg,
+            'buffer',
+            {},
+            {
+                logger: {
+                    debug: (msg) => logger.debug({}, msg),
+                    info: (msg) => logger.info({}, msg),
+                    warn: (msg) => logger.warn({}, msg),
+                    error: (msg) => logger.error({}, msg)
+                },
+                reuploadRequest: sock.updateMediaMessage
+            }
+        );
+
+        logger.debug({ remoteJid, bufferSize: buffer.length }, 'Downloaded image');
+        
+        const base64Image = buffer.toString('base64');
+        const caption = msg.message.imageMessage.caption || '';
+        const mimetype = msg.message.imageMessage.mimetype || 'image/jpeg';
+
+        await sendToPHP({
+            from: remoteJid,
+            type: 'image',
+            body: caption,
+            media: base64Image,
+            mimetype: mimetype,
+            messageTimestamp: msg.messageTimestamp,
+            messageId: msg.key.id
+        });
+    } catch (error) {
+        logger.error({ 
+            error: error.message, 
+            stack: error.stack,
+            remoteJid,
+            messageId: msg.key.id 
+        }, 'Error processing image message');
+        throw error;
+    }
+}
+
+/**
+ * Handles video messages.
+ * @param {object} sock - The socket instance.
+ * @param {object} msg - The message object.
+ * @param {string} remoteJid - The sender's JID.
+ */
+async function handleVideoMessage(sock, msg, remoteJid) {
+    logger.debug({ remoteJid }, 'Processing video message');
+    
+    try {
+        const buffer = await downloadMediaMessage(
+            msg,
+            'buffer',
+            {},
+            {
+                logger: {
+                    debug: (msg) => logger.debug({}, msg),
+                    info: (msg) => logger.info({}, msg),
+                    warn: (msg) => logger.warn({}, msg),
+                    error: (msg) => logger.error({}, msg)
+                },
+                reuploadRequest: sock.updateMediaMessage
+            }
+        );
+
+        logger.debug({ remoteJid, bufferSize: buffer.length }, 'Downloaded video');
+        
+        const base64Video = buffer.toString('base64');
+        const caption = msg.message.videoMessage.caption || '';
+        const mimetype = msg.message.videoMessage.mimetype || 'video/mp4';
+
+        await sendToPHP({
+            from: remoteJid,
+            type: 'video',
+            body: caption,
+            media: base64Video,
+            mimetype: mimetype,
+            messageTimestamp: msg.messageTimestamp,
+            messageId: msg.key.id,
+            mediaSize: msg.message.videoMessage.fileLength
+        });
+    } catch (error) {
+        logger.error({ 
+            error: error.message, 
+            stack: error.stack,
+            remoteJid,
+            messageId: msg.key.id 
+        }, 'Error processing video message');
+        throw error;
+    }
+}
+
+/**
+ * Handles document messages.
+ * @param {object} sock - The socket instance.
+ * @param {object} msg - The message object.
+ * @param {string} remoteJid - The sender's JID.
+ */
+async function handleDocumentMessage(sock, msg, remoteJid) {
+    logger.debug({ remoteJid }, 'Processing document message');
+    
+    try {
+        const buffer = await downloadMediaMessage(
+            msg,
+            'buffer',
+            {},
+            {
+                logger: {
+                    debug: (msg) => logger.debug({}, msg),
+                    info: (msg) => logger.info({}, msg),
+                    warn: (msg) => logger.warn({}, msg),
+                    error: (msg) => logger.error({}, msg)
+                },
+                reuploadRequest: sock.updateMediaMessage
+            }
+        );
+
+        logger.debug({ remoteJid, bufferSize: buffer.length }, 'Downloaded document');
+        
+        const base64Doc = buffer.toString('base64');
+        const fileName = msg.message.documentMessage.fileName || 'document';
+        const mimetype = msg.message.documentMessage.mimetype || 'application/octet-stream';
+        const caption = msg.message.documentMessage.caption || '';
+
+        await sendToPHP({
+            from: remoteJid,
+            type: 'document',
+            body: caption,
+            fileName: fileName,
+            media: base64Doc,
+            mimetype: mimetype,
+            messageTimestamp: msg.messageTimestamp,
+            messageId: msg.key.id,
+            mediaSize: msg.message.documentMessage.fileLength
+        });
+    } catch (error) {
+        logger.error({ 
+            error: error.message, 
+            stack: error.stack,
+            remoteJid,
+            messageId: msg.key.id 
+        }, 'Error processing document message');
+        throw error;
+    }
+}
+
+/**
+ * Handles audio messages.
+ * @param {object} sock - The socket instance.
+ * @param {object} msg - The message object.
+ * @param {string} remoteJid - The sender's JID.
+ */
+async function handleAudioMessage(sock, msg, remoteJid) {
+    logger.debug({ remoteJid }, 'Processing audio message');
+    
+    try {
+        const buffer = await downloadMediaMessage(
+            msg,
+            'buffer',
+            {},
+            {
+                logger: {
+                    debug: (msg) => logger.debug({}, msg),
+                    info: (msg) => logger.info({}, msg),
+                    warn: (msg) => logger.warn({}, msg),
+                    error: (msg) => logger.error({}, msg)
+                },
+                reuploadRequest: sock.updateMediaMessage
+            }
+        );
+
+        logger.debug({ remoteJid, bufferSize: buffer.length }, 'Downloaded audio');
+        
+        const base64Audio = buffer.toString('base64');
+        const mimetype = msg.message.audioMessage.mimetype || 'audio/ogg; codecs=opus';
+
+        await sendToPHP({
+            from: remoteJid,
+            type: 'audio',
+            media: base64Audio,
+            mimetype: mimetype,
+            messageTimestamp: msg.messageTimestamp,
+            messageId: msg.key.id,
+            mediaSize: msg.message.audioMessage.fileLength
+        });
+    } catch (error) {
+        logger.error({ 
+            error: error.message, 
+            stack: error.stack,
+            remoteJid,
+            messageId: msg.key.id 
+        }, 'Error processing audio message');
+        throw error;
+    }
+}
+
+/**
+ * Handles location messages.
+ * @param {object} msg - The message object.
+ * @param {string} remoteJid - The sender's JID.
+ */
+async function handleLocationMessage(msg, remoteJid) {
+    try {
+        const location = msg.message.locationMessage;
+        logger.debug({ remoteJid, location }, 'Processing location message');
+
+        await sendToPHP({
+            from: remoteJid,
+            type: 'location',
+            latitude: location.degreesLatitude,
+            longitude: location.degreesLongitude,
+            name: location.name || 'Shared Location',
+            address: location.address || '',
+            url: location.url || '',
+            messageTimestamp: msg.messageTimestamp,
+            messageId: msg.key.id
+        });
+    } catch (error) {
+        logger.error({ 
+            error: error.message, 
+            stack: error.stack,
+            remoteJid,
+            messageId: msg.key.id 
+        }, 'Error processing location message');
+        throw error;
+    }
+}
+
+module.exports = { 
+    handleMessages, 
+    handleTextMessage, 
+    handleImageMessage, 
+    handleVideoMessage, 
+    handleDocumentMessage, 
+    handleAudioMessage, 
+    handleLocationMessage 
+};
