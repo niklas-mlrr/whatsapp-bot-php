@@ -413,15 +413,22 @@ const startPolling = () => {
   if (pollInterval.value) {
     clearInterval(pollInterval.value);
   }
+  
+  // Initial fetch
+  fetchLatestMessages();
+  
+  // Set up polling interval
   pollInterval.value = window.setInterval(() => {
-    if (document.visibilityState === 'visible' && !isConnected.value) {
+    if (document.visibilityState === 'visible') {
       fetchLatestMessages();
     }
-  }, 30000);
+  }, 5000); // Poll every 5 seconds
 };
 
-// Fetch latest messages
+// Fetch latest messages with deduplication and proper ordering
 const fetchLatestMessages = async () => {
+  if (!props.chat) return;
+  
   try {
     const response = await axios.get(`/api/chats/${props.chat}/messages/latest`, {
       params: {
@@ -432,20 +439,52 @@ const fetchLatestMessages = async () => {
     const newMessages = response.data.data || [];
     
     if (newMessages.length > 0) {
-      // Add new messages to the end of the array
-      messages.value = [...messages.value, ...newMessages];
+      // Store the current scroll position
+      const container = scrollContainer.value;
+      const wasScrolledToBottom = container 
+        ? container.scrollHeight - container.scrollTop - container.clientHeight < 50
+        : false;
       
-      // If user is scrolled to bottom, auto-scroll to new messages
-      if (isScrolledToBottom.value) {
+      // Create a map of existing message IDs for quick lookup
+      const existingMessageIds = new Set(messages.value.map(m => m.id));
+      
+      // Filter out any messages we already have
+      const uniqueNewMessages = newMessages.filter((msg: Message) => !existingMessageIds.has(msg.id));
+      
+      if (uniqueNewMessages.length > 0) {
+        // Add new messages to the end of the array and sort by created_at
+        messages.value = [...messages.value, ...uniqueNewMessages].sort((a, b) => 
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        );
+        
+        // If user was scrolled to bottom or it's a new message, scroll to bottom
         nextTick(() => {
-          scrollToBottom();
+          if (wasScrolledToBottom || isScrolledToBottom.value) {
+            scrollToBottom({ behavior: 'smooth' });
+          } else if (!wasScrolledToBottom) {
+            hasNewMessages.value = true;
+          }
         });
-      } else {
-        hasNewMessages.value = true;
+        
+        // Mark messages as read if they're not from the current user
+        const unreadMessages = uniqueNewMessages.filter(
+          (msg: Message) => !msg.read_by?.includes(props.currentUser?.id) && 
+                          msg.sender_id !== props.currentUser?.id
+        );
+        
+        if (unreadMessages.length > 0) {
+          const messageIds = unreadMessages.map((msg: Message) => msg.id).filter(Boolean) as string[];
+          markMessagesAsRead(messageIds);
+        }
       }
     }
   } catch (error) {
     console.error('Error fetching latest messages:', error);
+    // If there's an error, try again after a delay
+    if (pollInterval.value) {
+      clearInterval(pollInterval.value);
+    }
+    pollInterval.value = window.setTimeout(fetchLatestMessages, 10000); // Retry after 10 seconds
   }
 };
 
@@ -614,8 +653,6 @@ interface ReadReceiptEvent {
   message_id: string;
   user_id: string;
 }
-
-
 
 // Fetch messages from API
 const fetchMessages = async (params: { chatId: string; limit: number; before?: string }): Promise<{ messages: Message[]; hasMore: boolean }> => {

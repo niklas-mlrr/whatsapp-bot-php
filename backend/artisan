@@ -1,6 +1,9 @@
 #!/usr/bin/env php
 <?php
 
+// Set memory limit for the script
+ini_set('memory_limit', '512M');
+
 use Illuminate\Foundation\Application;
 use Symfony\Component\Console\Input\ArgvInput;
 

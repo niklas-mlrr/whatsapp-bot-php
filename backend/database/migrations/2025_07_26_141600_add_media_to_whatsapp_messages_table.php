@@ -3,27 +3,24 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
-    public function up(): void
+    public function up()
     {
         Schema::table('messages', function (Blueprint $table) {
-            $table->string('media')->nullable()->after('content');
-            $table->string('mimetype')->nullable()->after('media');
+            // Check if the column doesn't exist before adding it
+            if (!Schema::hasColumn('messages', 'media')) {
+                $table->string('media')->nullable()->after('content');
+            }
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
-    public function down(): void
+    public function down()
     {
         Schema::table('messages', function (Blueprint $table) {
-            $table->dropColumn(['media', 'mimetype']);
+            $table->dropColumn('media');
         });
     }
 };

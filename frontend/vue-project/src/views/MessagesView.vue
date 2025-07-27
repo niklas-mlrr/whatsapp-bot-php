@@ -29,7 +29,15 @@
       
       <!-- Messages area -->
       <div class="flex-1 overflow-y-auto">
-        <MessageList ref="messageListRef" :chat="selectedChat" />
+        <MessageList 
+          v-if="selectedChat"
+          ref="messageListRef" 
+          :chat="selectedChat"
+          :current-user="currentUser"
+        />
+        <div v-else class="flex items-center justify-center h-full text-gray-500">
+          Select a chat to start messaging
+        </div>
       </div>
       
       <!-- Message input -->
@@ -93,6 +101,13 @@
 import { ref, onMounted } from 'vue'
 import MessageList from '../components/MessageList.vue'
 import { fetchChats, sendMessage, uploadImage } from '../api/messages'
+
+// Get current user from auth store or local storage
+const currentUser = ref({
+  id: '1', // This should come from your auth system
+  name: 'Current User', // This should come from your auth system
+  // Add other user properties as needed
+})
 
 const chats = ref<string[]>([])
 const loadingChats = ref(false)

@@ -18,44 +18,50 @@ use App\Http\Controllers\WebSocketController;
 */
 
 // Public routes
+Route::post('/login', [\App\Http\Controllers\Api\AuthController::class, 'login']);
 Route::post('/test', function () {
     return response()->json(['status' => 'ok']);
 });
 
-// WebSocket authentication
-Route::post('/broadcasting/auth', [WebSocketController::class, 'authenticate'])
-    ->middleware('auth:api');
-
-// WebSocket webhook (for presence/status updates)
-Route::post('/broadcasting/webhook', [WebSocketController::class, 'webhook']);
-
 // Webhook endpoint (public)
 Route::post('/whatsapp-webhook', [WhatsAppWebhookController::class, 'handle']);
 
-// Message routes
-Route::apiResource('messages', WhatsAppMessageController::class)
-    ->only(['index', 'show', 'destroy', 'store']);
+// Simple auth check endpoint
+Route::get('/check-auth', function () {
+    return response()->json(['authenticated' => auth()->check()]);
+});
 
-// Chat management
-Route::get('/chats', [WhatsAppMessageController::class, 'chats']);
-Route::post('/upload', [WhatsAppMessageController::class, 'upload']);
+// Protected routes
+Route::middleware(['auth:sanctum'])->group(function () {
+    // Auth routes
+    Route::post('/logout', [\App\Http\Controllers\Api\AuthController::class, 'logout']);
+    Route::get('/me', [\App\Http\Controllers\Api\AuthController::class, 'user']);
 
-// Protected routes (require authentication)
-Route::middleware('auth:api')->group(function () {
-    // Message status and reactions
-    Route::post('/messages/{message}/read', [MessageStatusController::class, 'markAsRead'])
-        ->name('messages.read');
+    // WebSocket
+    Route::post('/broadcasting/auth', [WebSocketController::class, 'authenticate']);
+    Route::post('/broadcasting/webhook', [WebSocketController::class, 'webhook']);
+
+    // Messages
+    Route::apiResource('messages', WhatsAppMessageController::class)
+        ->only(['index', 'show', 'destroy', 'store']);
+
+    // Message status
+    Route::prefix('messages/{message}')->group(function () {
+        Route::post('read', [MessageStatusController::class, 'markAsRead']);
+        Route::post('react', [MessageStatusController::class, 'react']);
+    });
+
+    // Chat management
+    Route::get('/chats', [WhatsAppMessageController::class, 'chats']);
+    Route::post('/upload', [WhatsAppMessageController::class, 'upload']);
     
-    Route::post('/messages/{message}/status', [MessageStatusController::class, 'updateStatus'])
-        ->name('messages.status');
-    
+    // Message reactions
     Route::post('/messages/{message}/reactions', [MessageStatusController::class, 'addReaction'])
         ->name('messages.reactions.add');
+        
+    Route::delete('/messages/{message}/reactions/{userId}', [MessageStatusController::class, 'removeReaction']);
     
-    Route::delete('/messages/{message}/reactions/{userId}', [MessageStatusController::class, 'removeReaction'])
-        ->name('messages.reactions.remove');
-    
-    // Chat management
+    // Chat management routes
     Route::prefix('chats')->group(function () {
         // Create a new direct chat
         Route::post('/direct', [ChatController::class, 'createDirectChat']);

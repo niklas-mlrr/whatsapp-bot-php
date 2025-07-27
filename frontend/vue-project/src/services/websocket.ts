@@ -82,20 +82,45 @@ export function useWebSocket(): WebSocketService {
       // Create new Echo instance
       echo = new Echo({
         broadcaster: 'pusher',
-        key: import.meta.env.VITE_PUSHER_APP_KEY,
+        key: import.meta.env.VITE_PUSHER_APP_KEY || 'your-pusher-key',
         wsHost: import.meta.env.VITE_PUSHER_HOST || window.location.hostname,
         wsPort: parseInt(import.meta.env.VITE_PUSHER_PORT || '6001', 10),
-        wssPort: parseInt(import.meta.env.VITE_PUSHER_PORT || '6001', 10),
-        forceTLS: (import.meta.env.VITE_PUSHER_SCHEME || 'https') === 'https',
+        forceTLS: false, // Disable for local development
         enabledTransports: ['ws', 'wss'],
         disableStats: true,
         auth: {
           headers: {
             Authorization: `Bearer ${token}`,
             'X-CSRF-TOKEN': document.head.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+            'Accept': 'application/json',
           },
         },
-        authEndpoint: `${import.meta.env.VITE_API_URL}/broadcasting/auth`,
+        authEndpoint: '/broadcasting/auth',
+      });
+      
+      // Add error handling
+      echo.connector.pusher.connection.bind('error', (err: any) => {
+        console.error('Pusher error:', err);
+        isConnected.value = false;
+      });
+      
+      // Connection established
+      echo.connector.pusher.connection.bind('connected', () => {
+        isConnected.value = true;
+        socketId.value = echo.socketId();
+        console.log('WebSocket connected');
+      });
+      
+      // Connection failed
+      echo.connector.pusher.connection.bind('failed', () => {
+        console.error('WebSocket connection failed');
+        isConnected.value = false;
+      });
+      
+      // Connection disconnected
+      echo.connector.pusher.connection.bind('disconnected', () => {
+        console.log('WebSocket disconnected');
+        isConnected.value = false;
       });
       
       // Set up connection handlers

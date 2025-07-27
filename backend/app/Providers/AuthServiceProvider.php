@@ -20,6 +20,15 @@ class AuthServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        $this->registerPolicies();
+
+        // Define the 'sanctum' guard
+        config(['auth.guards.sanctum' => [
+            'driver' => 'sanctum',
+            'provider' => 'users',
+        ]]);
+
+        // Set the default guard to 'sanctum' for API routes
+        config(['auth.defaults.guard' => 'sanctum']);
     }
 }
