@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Authentication Test</title>
+</head>
+<body>
+    <h1>WebSocket Authentication Test</h1>
+    <button id="testAuth">Test Authentication</button>
+    <div id="result"></div>
+
+    <script>
+        document.getElementById('testAuth').addEventListener('click', function() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = 'Testing...';
+
+            fetch('/test-auth', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: JSON.stringify({
+                    socket_id: '123.456',
+                    channel_name: 'private-test-channel'
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                resultDiv.innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+            })
+            .catch(error => {
+                resultDiv.innerHTML = '<p style="color: red;">Error: ' + error + '</p>';
+            });
+        });
+    </script>
+</body>
+</html>

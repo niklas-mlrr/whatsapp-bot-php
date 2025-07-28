@@ -82,11 +82,12 @@ export function useWebSocket(): WebSocketService {
       // Create new Echo instance
       echo = new Echo({
         broadcaster: 'pusher',
-        key: import.meta.env.VITE_PUSHER_APP_KEY || 'your-pusher-key',
-        wsHost: import.meta.env.VITE_PUSHER_HOST || window.location.hostname,
-        wsPort: parseInt(import.meta.env.VITE_PUSHER_PORT || '6001', 10),
+        key: import.meta.env.VITE_REVERB_APP_KEY || 'whatsapp-bot-key',
+        cluster: 'mt1', // Add cluster parameter
+        wsHost: import.meta.env.VITE_REVERB_HOST || window.location.hostname,
+        wsPort: parseInt(import.meta.env.VITE_REVERB_PORT || '8080', 10),
         forceTLS: false, // Disable for local development
-        enabledTransports: ['ws', 'wss'],
+        enabledTransports: ['ws'],
         disableStats: true,
         auth: {
           headers: {

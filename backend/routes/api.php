@@ -5,6 +5,9 @@ use App\Http\Controllers\Api\WhatsAppWebhookController;
 use App\Http\Controllers\Api\WhatsAppMessageController;
 use App\Http\Controllers\Api\MessageStatusController;
 use App\Http\Controllers\WebSocketController;
+use App\Events\MessageSent;
+use App\Models\User;
+use App\Models\WhatsAppMessage;
 
 /*
 |--------------------------------------------------------------------------
@@ -52,7 +55,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     });
 
     // Chat management
-    Route::get('/chats', [WhatsAppMessageController::class, 'chats']);
+    Route::get('/chats', [ChatController::class, 'index']);
     Route::post('/upload', [WhatsAppMessageController::class, 'upload']);
     
     // Message reactions

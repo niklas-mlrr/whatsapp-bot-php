@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Test</title>
+    <meta name="csrf-token" content="">
+    <!-- CryptoJS for HMAC-SHA256 hashing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 4px; font-weight: bold; }
+        .connected { background-color: #d4edda; color: #155724; }
+        .connecting { background-color: #fff3cd; color: #856404; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        #messages { margin: 20px 0; padding: 10px; border: 1px solid #ddd; border-radius: 4px; min-height: 100px; max-height: 300px; overflow-y: auto; }
+        .message { padding: 5px; margin: 5px 0; border-bottom: 1px solid #eee; }
+        button { padding: 8px 16px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #6c757d; cursor: not-allowed; }
+    </style>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .connecting {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .button-group {
+            margin: 20px 0;
+        }
+        .secondary {
+            background-color: #6c757d;
+        }
+        .secondary:hover {
+            background-color: #5a6268;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WebSocket Test</h1>
+        <div id="connection-status">Initializing...</div>
+        <button id="retry-connection">Retry Connection</button>
+        <div>
+            <div class="flex space-x-4">
+                <button id="send-test" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded" disabled>
+                    Send Direct Message
+                </button>
+                <button id="test-broadcast" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                    Test Broadcast
+                </button>
+            </div>
+        </div>
+        <div id="messages"></div>
+    </div>
+
+    <script>
+        // Get CSRF token from server
+        async function getCsrfToken() {
+            try {
+                const response = await fetch('/csrf-token');
+                const data = await response.json();
+                return data.token;
+            } catch (error) {
+                console.error('Error fetching CSRF token:', error);
+                return '';
+            }
+        }
+
+        // Update connection status
+        function updateConnectionStatus(status, message = '') {
+            const statusElement = document.getElementById('connection-status');
+            statusElement.textContent = message || `Status: ${status}`;
+            statusElement.className = `status ${status}`;
+            
+            // Enable/disable send button based on connection status
+            document.getElementById('send-test').disabled = status !== 'connected';
+        }
+
+        // Connect to WebSocket server using Laravel Reverb
+        function connectWebSocket() {
+            updateConnectionStatus('connecting', 'Connecting to WebSocket server...');
+            
+            if (socket) {
+                socket.close();
+            }
+            
+            // Connect to the WebSocket server with authentication
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+            const appKey = '{{ config("broadcasting.connections.reverb.key") }}';
+            const wsHost = window.location.hostname;
+            const wsPort = '8080';
+            const wsUrl = `${wsProtocol}${wsHost}:${wsPort}/app/${appKey}?protocol=7&client=js&version=1.0.0`;
+            console.log('Connecting to WebSocket server:', wsUrl);
+            
+            try {
+                socket = new WebSocket(wsUrl);
+                
+                // Connection opened
+                socket.onopen = function() {
+                    console.log('WebSocket connected');
+                    updateConnectionStatus('connected', 'Connected to WebSocket server');
+                    
+                            // Wait for the connection to be established and get the socket ID
+                    const connectionData = JSON.parse(event.data);
+                    if (connectionData.event === 'pusher:connection_established') {
+                        const socketId = JSON.parse(connectionData.data).socket_id;
+                        const channelName = 'private-test-channel';
+                        
+                        console.log('Connection established with socket ID:', socketId);
+                        console.log('Initiating authentication for channel:', channelName);
+                        
+                        fetch('/test-auth', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                            },
+                            body: JSON.stringify({
+                                socket_id: socketId,
+                                channel_name: channelName
+                            })
+                        })
+                        .then(response => {
+                            if (!response.ok) {
+                                return response.text().then(text => {
+                                    throw new Error(`HTTP ${response.status}: ${text}`);
+                                });
+                            }
+                            return response.json();
+                        })
+                        .then(authData => {
+                            console.log('Authentication response:', authData);
+                            
+                            if (!authData.auth) {
+                                throw new Error('No auth data in response');
+                            }
+                            
+                            // Now subscribe to the private channel
+                            const subscribeMsg = {
+                                event: 'pusher:subscribe',
+                                data: {
+                                    auth: authData.auth,
+                                    channel: channelName
+                                }
+                            };
+                            
+                            console.log('Subscribing to channel:', JSON.stringify(subscribeMsg, null, 2));
+                            socket.send(JSON.stringify(subscribeMsg));
+                            
+                            // Update status to show we're attempting to subscribe
+                            updateConnectionStatus('connecting', 'Subscribing to private channel...');
+                            
+                            // Send a test message after a short delay to ensure subscription is complete
+                            setTimeout(() => {
+                                const testMessage = {
+                                    event: 'client-test',
+                                    channel: channelName,
+                                    data: JSON.stringify({
+                                        message: 'Test message from client',
+                                        time: new Date().toISOString()
+                                    })
+                                };
+                                console.log('Sending test message:', testMessage);
+                                socket.send(JSON.stringify(testMessage));
+                            }, 1000);
+                        })
+                        .catch(error => {
+                            console.error('Authentication failed:', error);
+                            updateConnectionStatus('error', `Failed to authenticate: ${error.message}`);
+                        });
+                    }
+                };
+                
+                // Listen for messages
+                socket.onmessage = function(event) {
+                    console.log('Raw message received:', event.data);
+                    try {
+                        const data = JSON.parse(event.data);
+                        console.log('Parsed message:', data);
+                        
+                        // Handle different message types
+                        if (data.event === 'test.message') {
+                            displayMessage(data.data);
+                        } else if (data.event === 'pusher:connection_established') {
+                            console.log('Successfully connected to Pusher-compatible WebSocket');
+                        } else if (data.event === 'pusher:subscription_succeeded') {
+                            console.log('Successfully subscribed to channel:', data.channel);
+                            updateConnectionStatus('connected', `Subscribed to ${data.channel}`);
+                        } else if (data.event) {
+                            // Handle other events
+                            console.log('Received event:', data.event, data);
+                            displayMessage({
+                                message: `[${data.event}] ${JSON.stringify(data.data || {})}`,
+                                time: new Date().toISOString()
+                            });
+                        }
+                    } catch (e) {
+                        console.error('Error processing message:', e);
+                    }
+                };
+        
+        socket.onclose = function() {
+            console.log('WebSocket disconnected');
+            updateConnectionStatus('disconnected', 'Disconnected from WebSocket server');
+            setTimeout(connectWebSocket, 5000);
+        };
+        
+        socket.onerror = function(error) {
+            console.error('WebSocket error:', error);
+            updateConnectionStatus('error', 'WebSocket error occurred');
+        };
+        
+    } catch (error) {
+        console.error('Error creating WebSocket:', error);
+        updateConnectionStatus('error', 'Failed to create WebSocket connection');
+        setTimeout(connectWebSocket, 5000);
+    }
+}
+        
+        // Display a message in the UI
+        function displayMessage(data) {
+            const messagesElement = document.getElementById('messages');
+            const messageElement = document.createElement('div');
+            messageElement.className = 'message';
+            
+            const messageContent = `
+                <div class="font-medium">${data.user?.name || 'System'}</div>
+                <div>${data.message?.message || JSON.stringify(data)}</div>
+                <div class="text-xs text-gray-500">${new Date().toLocaleTimeString()}</div>
+            `;
+            
+            messageElement.innerHTML = messageContent;
+            messagesElement.prepend(messageElement);
+        }
+        
+        // Send a test message
+        function sendTestMessage() {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+            
+            fetch('/test-broadcast', {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                credentials: 'same-origin'
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Test message sent:', data);
+                displayMessage({
+                    user: { name: 'You' },
+                    message: { message: 'Test message sent' }
+                });
+            })
+            .catch(error => {
+                console.error('Error sending test message:', error);
+                updateConnectionStatus('error', 'Failed to send test message');
+            });
+        }
+
+        // Test broadcast functionality
+        async function testBroadcast() {
+            try {
+                const response = await fetch('/test-broadcast');
+                const result = await response.json();
+                console.log('Broadcast test result:', result);
+                displayMessage({
+                    message: `Broadcast test: ${result.message}`,
+                    time: new Date().toISOString()
+                });
+                
+                // After broadcasting, send a test message to the channel
+                const testMessage = {
+                    event: 'client-test',
+                    channel: 'private-test-channel',
+                    data: JSON.stringify({
+                        message: 'Test message after broadcast',
+                        time: new Date().toISOString()
+                    })
+                };
+                console.log('Sending test message after broadcast:', testMessage);
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify(testMessage));
+                }
+            } catch (error) {
+                console.error('Error testing broadcast:', error);
+                displayMessage({
+                    message: `Error testing broadcast: ${error.message}`,
+                    time: new Date().toISOString()
+                });
+            }
+        }
+
+        
+        let socket;
+        
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', function() {
+            // Get CSRF token
+            getCsrfToken().then(csrfToken => {
+                document.querySelector('meta[name="csrf-token"]').content = csrfToken;
+                console.log('CSRF Token obtained');
+                connectWebSocket();
+            }).catch(error => {
+                console.error('CSRF Token error:', error);
+                updateConnectionStatus('error', 'Failed to get CSRF token');
+            });
+            
+            // Add retry button
+            document.getElementById('retry-connection').addEventListener('click', connectWebSocket);
+            
+            // Add send test message button
+            document.getElementById('send-test').addEventListener('click', sendTestMessage);
+            
+            // Add test broadcast button
+            document.getElementById('test-broadcast').addEventListener('click', testBroadcast);
+        });
+    </script>
+</body>
+</html>

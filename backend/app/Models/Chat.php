@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
+use App\Models\User;
+use App\Models\WhatsAppMessage;
 
 class Chat extends Model
 {
@@ -30,6 +32,7 @@ class Chat extends Model
         'is_archived',
         'is_muted',
         'metadata',
+        'created_by',
     ];
 
     /**
@@ -45,6 +48,7 @@ class Chat extends Model
         'is_muted' => 'boolean',
         'metadata' => 'array',
         'unread_count' => 'integer',
+        'created_by' => 'integer',
     ];
 
     /**
@@ -56,6 +60,7 @@ class Chat extends Model
         'last_message',
         'avatar_url',
         'display_name',
+        'is_online',
     ];
 
     /**
@@ -71,6 +76,35 @@ class Chat extends Model
         'is_muted' => false,
         'unread_count' => 0,
     ];
+
+    /**
+     * The users that belong to the chat.
+     */
+    public function users()
+    {
+        return $this->belongsToMany(User::class, 'chat_user', 'chat_id', 'user_id')
+            ->withTimestamps()
+            ->withPivot(['is_admin', 'muted_until']);
+    }
+
+    /**
+     * The user who created the chat.
+     */
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /**
+     * Get the unread messages for the chat.
+     */
+    public function unreadMessages()
+    {
+        return $this->hasMany(WhatsAppMessage::class, 'chat', 'id')
+            ->whereDoesntHave('readers', function($query) {
+                $query->where('user_id', auth()->id());
+            });
+    }
 
     /**
      * Get the messages for the chat.
@@ -141,6 +175,30 @@ class Chat extends Model
     /**
      * Get the avatar URL for the chat.
      */
+    /**
+     * Check if the chat is online.
+     */
+    public function getIsOnlineAttribute(): bool
+    {
+        if ($this->is_group) {
+            return false;
+        }
+
+        $otherUser = $this->users()->where('users.id', '!=', auth()->id())->first();
+        return $otherUser ? $otherUser->is_online : false;
+    }
+
+    /**
+     * Get the other user in a direct chat.
+     */
+    public function getOtherUserAttribute()
+    {
+        if ($this->is_group) {
+            return null;
+        }
+        return $this->users()->where('users.id', '!=', auth()->id())->first();
+    }
+
     public function getAvatarUrlAttribute(): ?string
     {
         if ($this->is_group) {
@@ -148,6 +206,8 @@ class Chat extends Model
         }
 
         // For direct chats, get the other participant's avatar
+        $otherUser = $this->otherUser;
+        return $otherUser ? $otherUser->avatar_url : null;
         $participant = $this->participants[0] ?? null;
         if ($participant && $user = User::where('phone', $participant)->first()) {
             return $user->avatar_url;

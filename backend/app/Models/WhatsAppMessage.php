@@ -5,7 +5,11 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Facades\Storage;
+use App\Models\User;
+use App\Models\Chat;
 
 class WhatsAppMessage extends Model
 {
@@ -15,7 +19,9 @@ class WhatsAppMessage extends Model
 
     protected $fillable = [
         'sender',
+        'sender_id',
         'chat',
+        'chat_id',
         'type',
         'direction',
         'status',
@@ -36,7 +42,53 @@ class WhatsAppMessage extends Model
         'is_read' => 'boolean',
     ];
     
-    protected $appends = ['is_read', 'media_url', 'thumbnail_url'];
+    protected $appends = [
+        'is_read', 
+        'media_url', 
+        'thumbnail_url',
+        'sender_name',
+        'sender_avatar',
+    ];
+
+    /**
+     * The users who have read this message.
+     */
+    public function readers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'message_reads')
+            ->withTimestamps()
+            ->withPivot('read_at');
+    }
+
+    /**
+     * The user who sent this message.
+     */
+    public function sender(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'sender_id');
+    }
+
+    /**
+     * Get the sender's name.
+     */
+    public function getSenderNameAttribute(): ?string
+    {
+        if ($this->sender) {
+            return $this->sender->name;
+        }
+        return $this->sender; // Fallback to the sender field if no user relationship
+    }
+
+    /**
+     * Get the sender's avatar URL.
+     */
+    public function getSenderAvatarAttribute(): ?string
+    {
+        if ($this->sender) {
+            return $this->sender->avatar_url;
+        }
+        return null;
+    }
     
     // Default values for attributes
     protected $attributes = [
@@ -97,9 +149,12 @@ class WhatsAppMessage extends Model
         return $this->belongsTo(User::class, 'sender', 'phone');
     }
     
-    public function chat()
+    /**
+     * Get the chat this message belongs to.
+     */
+    public function chat(): BelongsTo
     {
-        return $this->belongsTo(Chat::class, 'chat', 'id');
+        return $this->belongsTo(Chat::class, 'chat_id');
     }
 
     // Accessors & Mutators

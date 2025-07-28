@@ -11,6 +11,99 @@ use Illuminate\Support\Facades\Auth;
 
 class ChatController extends Controller
 {
+    /**
+     * Get all chats for the authenticated user.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function index(Request $request)
+    {
+        $user = $request->user();
+        
+        $query = $user->chats()
+            ->with([
+                'users' => function ($query) use ($user) {
+                    $query->where('users.id', '!=', $user->id);
+                },
+                'lastMessage',
+                'lastMessage.sender'
+            ])
+            ->withCount(['unreadMessages' => function($query) use ($user) {
+                $query->whereDoesntHave('readers', function($q) use ($user) {
+                    $q->where('user_id', $user->id);
+                });
+            }])
+            ->latest('updated_at');
+
+        // Apply search filter if provided
+        if ($request->has('search')) {
+            $search = $request->input('search');
+            $query->where(function($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhereHas('users', function($q) use ($search) {
+                      $q->where('name', 'like', "%{$search}%");
+                  });
+            });
+        }
+
+        // Paginate the results
+        $perPage = $request->input('per_page', 20);
+        $chats = $query->paginate($perPage);
+
+        // Format the response
+        $chats->getCollection()->transform(function ($chat) use ($user) {
+            $formattedChat = [
+                'id' => $chat->id,
+                'name' => $chat->name,
+                'is_group' => $chat->is_group,
+                'avatar_url' => $chat->avatar_url,
+                'unread_count' => $chat->unread_messages_count,
+                'is_online' => $chat->is_online,
+                'last_message' => $chat->last_message ? [
+                    'id' => $chat->last_message->id,
+                    'content' => $chat->last_message->content,
+                    'type' => $chat->last_message->type,
+                    'status' => $chat->last_message->status,
+                    'created_at' => $chat->last_message->created_at,
+                    'sender' => $chat->last_message->sender ? [
+                        'id' => $chat->last_message->sender->id,
+                        'name' => $chat->last_message->sender->name,
+                        'avatar_url' => $chat->last_message->sender->avatar_url,
+                    ] : null,
+                ] : null,
+                'users' => $chat->users->map(function ($user) {
+                    return [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'avatar_url' => $user->avatar_url,
+                        'is_online' => $user->is_online,
+                    ];
+                }),
+                'updated_at' => $chat->updated_at,
+            ];
+
+            // For direct chats, set the name to the other user's name if not set
+            if (!$chat->is_group && !$chat->name) {
+                $otherUser = $chat->users->first();
+                if ($otherUser) {
+                    $formattedChat['name'] = $otherUser->name;
+                }
+            }
+
+            return $formattedChat;
+        });
+
+        return response()->json([
+            'data' => $chats->items(),
+            'meta' => [
+                'current_page' => $chats->currentPage(),
+                'last_page' => $chats->lastPage(),
+                'per_page' => $chats->perPage(),
+                'total' => $chats->total(),
+            ]
+        ]);
+    }
     protected ChatService $chatService;
 
     public function __construct(ChatService $chatService)

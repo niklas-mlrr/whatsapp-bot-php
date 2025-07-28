@@ -65,21 +65,25 @@ class MessageSent implements ShouldBroadcast
     }
 
     /**
+     * The name of the queue on which to place the broadcasting job.
+     *
+     * @return string
+     */
+    public function broadcastQueue()
+    {
+        return 'broadcasting';
+    }
+    
+    /**
      * Get the channels the event should broadcast on.
      *
-     * @return \Illuminate\Broadcasting\Channel|array
+     * @return Channel|array
      */
     public function broadcastOn()
     {
-        // Notify all participants of the chat
-        $channels = [new PrivateChannel('chat.' . $this->message->chat)];
-        
-        // Also notify the sender on their private channel
-        if ($this->message->sender) {
-            $channels[] = new PrivateChannel('user.' . $this->message->sender);
-        }
-        
-        return $channels;
+        // For Reverb, we'll use a public channel for simplicity
+        // In production, you might want to use private channels with proper authentication
+        return new Channel('chat.test-chat');
     }
     
     /**
@@ -87,9 +91,14 @@ class MessageSent implements ShouldBroadcast
      *
      * @return string
      */
+    /**
+     * The event's broadcast name.
+     *
+     * @return string
+     */
     public function broadcastAs()
     {
-        return 'message.' . $this->eventType;
+        return 'MessageSent';
     }
     
     /**
@@ -99,26 +108,36 @@ class MessageSent implements ShouldBroadcast
      */
     public function broadcastWith()
     {
-        return [
-            'message' => array_merge(
-                $this->message->toArray(),
-                ['event_type' => $this->eventType]
-            ),
-            'chat_id' => $this->message->chat,
-            'user' => $this->user ? [
+        $messageData = $this->message->toArray();
+        
+        // Add formatted dates if they exist
+        if (isset($this->message->created_at) && $this->message->created_at) {
+            $messageData['created_at'] = $this->message->created_at->toDateTimeString();
+        }
+        if (isset($this->message->updated_at) && $this->message->updated_at) {
+            $messageData['updated_at'] = $this->message->updated_at->toDateTimeString();
+        }
+        if (isset($this->message->timestamp) && $this->message->timestamp) {
+            $messageData['timestamp'] = $this->message->timestamp->toDateTimeString();
+        }
+        
+        $userData = null;
+        if ($this->user) {
+            $userData = [
                 'id' => $this->user->id,
                 'name' => $this->user->name,
-                'avatar' => $this->user->avatar_url,
-            ] : null,
-            'sender' => $this->message->senderUser ? [
-                'id' => $this->message->senderUser->id,
-                'name' => $this->message->senderUser->name,
-                'avatar' => $this->message->senderUser->avatar_url,
-            ] : [
-                'phone' => $this->message->sender,
-            ],
+                'email' => $this->user->email ?? null,
+                'phone' => $this->user->phone ?? null
+            ];
+        }
+        
+        return [
+            'message' => $messageData,
+            'event_type' => $this->eventType,
+            'user' => $userData,
             'data' => $this->data,
-            'timestamp' => now()->toIso8601String(),
+            'socket' => null, // This prevents the echo server from sending the message back to the sender
+            'timestamp' => now()->toIso8601String()
         ];
     }
     
