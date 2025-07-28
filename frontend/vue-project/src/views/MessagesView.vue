@@ -106,7 +106,10 @@ import { fetchChats, sendMessage, uploadImage } from '../api/messages'
 const currentUser = ref({
   id: '1', // This should come from your auth system
   name: 'Current User', // This should come from your auth system
-  // Add other user properties as needed
+  email: 'user@example.com',
+  avatar: null,
+  is_online: true,
+  last_seen: new Date().toISOString()
 })
 
 const chats = ref<string[]>([])

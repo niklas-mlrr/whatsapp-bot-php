@@ -1,7 +1,7 @@
 <template>
   <div class="flex flex-col h-full">
     <!-- Loading indicator -->
-    <div v-if="loading && !messages.length" class="flex-1 flex items-center justify-center">
+    <div v-if="loading && (!messages || !messages.length)" class="flex-1 flex items-center justify-center">
       <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
     </div>
     
@@ -214,13 +214,17 @@ const {
 
 // Computed
 const sortedMessages = computed(() => {
+  if (!messages.value || !Array.isArray(messages.value)) {
+    return [];
+  }
+  
   return [...messages.value].sort((a, b) => {
     // Handle temporary messages (sending in progress)
     if (a.temp_id && !b.temp_id) return -1;
     if (!a.temp_id && b.temp_id) return 1;
     
-    const dateA = new Date(a.created_at).getTime();
-    const dateB = new Date(b.created_at).getTime();
+    const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
     return dateA - dateB; // Oldest first (newest at bottom)
   });
 });

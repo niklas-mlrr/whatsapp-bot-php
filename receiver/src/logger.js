@@ -145,9 +145,8 @@ process.on('unhandledRejection', (reason, promise) => {
         error: reason instanceof Error ? reason.message : reason,
         stack: reason instanceof Error ? reason.stack : undefined,
         promise: {
-            isPending: promise.isPending(),
-            isFulfilled: promise.isFulfilled(),
-            isRejected: promise.isRejected(),
+            // Remove non-standard promise inspection methods
+            // that are not available in native Promises
         },
     }, 'Unhandled Promise Rejection');
 });
