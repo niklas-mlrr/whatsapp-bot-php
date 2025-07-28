@@ -1,5 +1,5 @@
 const { downloadMediaMessage, proto } = require('@whiskeysockets/baileys');
-const logger = require('./logger');
+const { logger } = require('./logger');
 const { sendToPHP } = require('./apiClient');
 const config = require('./config');
 
