@@ -210,7 +210,8 @@ const sendToPHP = async (payload) => {
     
     try {
         const response = await sendMessage({
-            from: payload.from,
+            sender: payload.from,  // Map 'from' to 'sender' for the backend
+            chat: payload.from,    // Use the same value for chat as sender for direct messages
             type: payload.type,
             body: payload.body,
             media: payload.media,
