@@ -213,7 +213,8 @@ const sendToPHP = async (payload) => {
             sender: payload.from,  // Map 'from' to 'sender' for the backend
             chat: payload.from,    // Use the same value for chat as sender for direct messages
             type: payload.type,
-            body: payload.body,
+            content: payload.body, // Use 'content' instead of 'body' to match backend
+            sending_time: new Date().toISOString(), // Add current timestamp
             media: payload.media,
             mimetype: payload.mimetype,
             messageId: payload.messageId,
