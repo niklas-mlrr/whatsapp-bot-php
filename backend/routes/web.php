@@ -37,7 +37,11 @@ $testRoutes = [
     'test-websocket.php',
     'test-bypass.php',
     'websockets.php',
-    'test-trigger.php'
+    'test-trigger.php',
+    'test.php',
+    'test2.php',
+    'test3.php',
+    'db-test.php' // Include our test routes
 ];
 
 foreach ($testRoutes as $routeFile) {

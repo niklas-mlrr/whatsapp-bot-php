@@ -8,6 +8,7 @@ use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Support\Facades\Hash;
 use App\Models\Chat;
+use Illuminate\Support\Str;
 
 class User extends Authenticatable
 {
@@ -20,11 +21,16 @@ class User extends Authenticatable
      */
     protected $fillable = [
         'name',
+        'email',
         'password',
-        'avatar_url',
+        'phone',
+        'avatar',
+        'status',
         'last_seen_at',
-        'is_online',
+        'settings',
     ];
+    
+
 
     /**
      * The attributes that should be hidden for serialization.
@@ -54,13 +60,13 @@ class User extends Authenticatable
     ];
 
     /**
-     * The chats that belong to the user.
+     * The chats that the user belongs to.
      */
     public function chats()
     {
         return $this->belongsToMany(Chat::class, 'chat_user')
             ->withTimestamps()
-            ->withPivot(['is_admin', 'muted_until'])
+            ->withPivot(['is_admin', 'muted_until', 'last_read_at'])
             ->orderByPivot('last_read_at', 'desc');
     }
 

@@ -25,14 +25,39 @@ class WhatsAppMessageRequest extends FormRequest
      */
     public function rules(): array
     {
-        return [
-            'sender' => ['required', 'string', 'max:255'],
-            'chat' => ['required', 'string', 'max:255'],
+        // Log the incoming request data for debugging
+        \Log::channel('whatsapp')->debug('Incoming webhook request', [
+            'headers' => $this->headers->all(),
+            'input' => $this->all(),
+            'ip' => $this->ip(),
+        ]);
+
+        // Prepare the rules
+        $rules = [
             'type' => ['required', 'string', 'max:50'],
-            'content' => ['nullable', 'string'],
+            'body' => ['sometimes', 'string'],
+            'content' => ['sometimes', 'string'],
+            'sender' => ['sometimes', 'string', 'max:255'],
+            'from' => ['sometimes', 'string', 'max:255'],
+            'chat' => ['sometimes', 'string', 'max:255'],
             'sending_time' => ['nullable', 'date'],
+            'timestamp' => ['nullable', 'date'],
             'media' => ['nullable', 'string'],
-            'mimetype' => ['nullable', 'string', 'starts_with:image/'],
+            'mimetype' => ['nullable', 'string'],
+            'contextInfo' => ['sometimes', 'array'],
+            'messageId' => ['sometimes', 'string'],
+            'isGroup' => ['sometimes', 'boolean'],
+            'messageTimestamp' => ['sometimes', 'string'],
         ];
+
+        // Add required validation for either 'from' or 'sender'
+        $this->mergeIfMissing([
+            'from' => $this->input('sender'),
+            'sender' => $this->input('from'),
+            'sending_time' => $this->input('sending_time') ?? $this->input('timestamp') ?? now()->toDateTimeString(),
+            'content' => $this->input('content') ?? $this->input('body'),
+        ]);
+
+        return $rules;
     }
 }

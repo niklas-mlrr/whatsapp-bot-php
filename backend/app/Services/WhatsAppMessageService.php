@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class WhatsAppMessageService
 {
@@ -25,68 +25,78 @@ class WhatsAppMessageService
     public function handle(WhatsAppMessageData $data, int $retryCount = 0): void
     {
         try {
-            // Check for duplicate message
-            $cacheKey = 'message:' . md5($data->sender . $data->content . $data->sending_time);
-            if (Cache::has($cacheKey)) {
-                Log::channel('whatsapp')->info('Duplicate message detected, skipping', [
-                    'sender' => $data->sender,
-                    'content' => $data->content,
-                ]);
-                return;
+            // First check if message already exists
+            if ($data->messageId) {
+                $existingMessage = WhatsAppMessage::where('metadata->message_id', $data->messageId)->first();
+                if ($existingMessage) {
+                    Log::channel('whatsapp')->info('Message already exists, skipping duplicate', [
+                        'message_id' => $data->messageId,
+                        'existing_id' => $existingMessage->id
+                    ]);
+                    return;
+                }
             }
 
-            // Store in cache for 1 hour to prevent duplicates
-            Cache::put($cacheKey, true, now()->addHour());
-
-            // Find or create chat
-            $chat = $this->findOrCreateChat($data->chat, $data->sender);
-            
-            // Find or create sender user
-            $sender = $this->findOrCreateUser($data->sender);
-            
-            // Add sender_id to data
-            $data->sender_id = $sender->id;
-            $data->chat_id = $chat->id;
-
-            // Process message based on type
-            $message = match ($data->type) {
-                'text' => $this->handleTextMessage($data),
-                'image' => $this->handleImageMessage($data),
-                'video' => $this->handleVideoMessage($data),
-                'audio' => $this->handleAudioMessage($data),
-                'document' => $this->handleDocumentMessage($data),
-                'location' => $this->handleLocationMessage($data),
-                'contact' => $this->handleContactMessage($data),
-                default => $this->handleUnknownMessage($data),
-            };
-
-            // Queue WebSocket notification
-            if ($message) {
-                $this->webSocketService->newMessage($message);
+            // Process with timeout protection
+            DB::transaction(function() use ($data) {
+                // Find or create chat
+                $chat = $this->findOrCreateChat($data->chat, $data->sender);
                 
-                // Update chat's last message reference
-                $chat->update([
-                    'last_message_id' => $message->id,
-                    'last_message_at' => $message->sending_time ?? now(),
-                ]);
+                // Find or create sender user
+                $sender = $this->findOrCreateUser($data->sender);
                 
-                Log::channel('whatsapp')->info('Message saved successfully', [
-                    'message_id' => $message->id,
-                    'sender' => $data->sender,
-                    'chat' => $data->chat,
-                    'type' => $data->type,
-                ]);
-            }
+                // Add sender_id to data
+                $data->sender_id = $sender->id;
+                $data->chat_id = $chat->id;
+
+                // Process message based on type
+                $message = match ($data->type) {
+                    'text' => $this->handleTextMessage($data),
+                    'image' => $this->handleImageMessage($data),
+                    'video' => $this->handleVideoMessage($data),
+                    'audio' => $this->handleAudioMessage($data),
+                    'document' => $this->handleDocumentMessage($data),
+                    'location' => $this->handleLocationMessage($data),
+                    'contact' => $this->handleContactMessage($data),
+                    default => $this->handleUnknownMessage($data),
+                };
+
+                // Queue WebSocket notification
+                if ($message) {
+                    $this->webSocketService->newMessage($message);
+                    
+                    // Update chat's last message reference
+                    $chat->update([
+                        'last_message_id' => $message->id,
+                        'last_message_at' => $message->sending_time ?? now(),
+                    ]);
+                    
+                    Log::channel('whatsapp')->info('Message saved successfully', [
+                        'message_id' => $message->id,
+                        'sender' => $data->sender,
+                        'chat' => $data->chat,
+                        'type' => $data->type,
+                    ]);
+                }
+            }, 3); // 3 attempts for the transaction
+
         } catch (\Exception $e) {
             Log::channel('whatsapp')->error('Error processing message', [
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-                'data' => (array) $data,
                 'retry_count' => $retryCount,
+                'trace' => $e->getTraceAsString()
             ]);
-            
-            // Retry processing the message
-            $this->retryMessageProcessing($data, $retryCount + 1);
+
+            if ($retryCount < 3) {
+                // Exponential backoff
+                sleep(min(pow(2, $retryCount), 8));
+                $this->handle($data, $retryCount + 1);
+            } else {
+                Log::channel('whatsapp')->critical('Max retries exceeded for message', [
+                    'message_id' => $data->messageId,
+                    'error' => $e->getMessage()
+                ]);
+            }
         }
     }
 
@@ -652,28 +662,34 @@ class WhatsAppMessageService
     /**
      * Find or create a chat for the given phone number
      */
-    private function findOrCreateChat(string $chatPhone, string $senderPhone): Chat
+    protected function findOrCreateChat(string $chatId, string $senderId): Chat
     {
-        // Try to find an existing chat
-        $chat = Chat::where('is_group', false)
-            ->whereJsonContains('participants', $chatPhone)
-            ->whereJsonContains('participants', $senderPhone)
-            ->first();
+        // First try to find existing chat
+        $chat = Chat::where('metadata->whatsapp_id', $chatId)->first();
+
+        if (!$chat) {
+            // Create new chat only if it doesn't exist
+            $chat = Chat::create([
+                'name' => $chatId,
+                'is_group' => false,
+                'metadata' => [
+                    'whatsapp_id' => $chatId,
+                    'created_by' => $senderId
+                ]
+            ]);
             
-        if ($chat) {
-            return $chat;
+            Log::channel('whatsapp')->info('Created new chat', [
+                'chat_id' => $chat->id,
+                'whatsapp_id' => $chatId
+            ]);
         }
-        
-        // Create a new chat
-        return Chat::create([
-            'name' => 'Chat with ' . $chatPhone,
-            'is_group' => false,
-            'participants' => [$chatPhone, $senderPhone],
-            'metadata' => [
-                'type' => 'direct',
-                'created_at' => now()->toDateTimeString(),
-            ],
-        ]);
+
+        // Ensure sender is connected to chat
+        if (!$chat->users()->where('users.id', $senderId)->exists()) {
+            $chat->users()->attach($senderId);
+        }
+
+        return $chat;
     }
     
     /**
@@ -681,14 +697,49 @@ class WhatsAppMessageService
      */
     private function findOrCreateUser(string $phone): User
     {
-        return User::firstOrCreate(
-            ['phone' => $phone],
-            [
+        // First try to find by phone if it exists
+        $user = User::where('phone', $phone)->first();
+        
+        if ($user) {
+            return $user;
+        }
+        
+        // If not found by phone, create a new user
+        try {
+            $user = User::create([
                 'name' => $phone, // Default name is the phone number
-                'password' => bcrypt(Str::random(16)), // Random password
                 'email' => $phone . '@whatsapp.local', // Dummy email
-            ]
-        );
+                'password' => bcrypt(Str::random(16)), // Random password
+                'phone' => $phone,
+                'status' => 'offline',
+                'last_seen_at' => now(),
+                'settings' => json_encode([]), // Empty settings JSON
+            ]);
+            
+            Log::channel('whatsapp')->info('Created new user', [
+                'user_id' => $user->id,
+                'phone' => $phone,
+            ]);
+            
+            return $user;
+        } catch (\Exception $e) {
+            Log::channel('whatsapp')->error('Failed to create user', [
+                'phone' => $phone,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            
+            // If user creation fails, try to find an existing user by phone again
+            // in case it was created by another process
+            $user = User::where('phone', $phone)->first();
+            
+            if ($user) {
+                return $user;
+            }
+            
+            // If we still can't find the user, rethrow the exception
+            throw $e;
+        }
     }
     
     /**

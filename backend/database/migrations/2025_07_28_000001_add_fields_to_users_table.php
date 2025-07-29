@@ -9,30 +9,18 @@ return new class extends Migration
     /**
      * Run the migrations.
      */
-    public function up(): void
-    {
-        Schema::table('users', function (Blueprint $table) {
-            // Add phone number (unique)
-            $table->string('phone', 20)->unique()->nullable()->after('email');
-            
-            // Add avatar path
-            $table->string('avatar')->nullable()->after('phone');
-            
-            // Add user status (online, offline, away, etc.)
-            $table->string('status', 20)->default('offline')->after('avatar');
-            
-            // Track when user was last seen
-            $table->timestamp('last_seen_at')->nullable()->after('status');
-            
-            // JSON settings field for user preferences
-            $table->json('settings')->nullable()->after('remember_token');
-            
-            // Indexes
-            $table->index('phone');
-            $table->index('status');
-            $table->index('last_seen_at');
-        });
-    }
+    public function up()
+{
+    Schema::table('users', function (Blueprint $table) {
+        if (!Schema::hasColumn('users', 'phone')) {
+            $table->string('phone', 20)->nullable()->after('name');
+        }
+        
+        if (!Schema::hasColumn('users', 'status')) {
+            $table->string('status', 20)->default('active');
+        }
+    });
+}
 
     /**
      * Reverse the migrations.

@@ -5,6 +5,8 @@ use App\Http\Controllers\Api\WhatsAppWebhookController;
 use App\Http\Controllers\Api\WhatsAppMessageController;
 use App\Http\Controllers\Api\MessageStatusController;
 use App\Http\Controllers\WebSocketController;
+use App\Http\Controllers\ChatController;
+use App\Http\Controllers\PresenceController;
 use App\Events\MessageSent;
 use App\Models\User;
 use App\Models\WhatsAppMessage;
@@ -27,6 +29,9 @@ Route::post('/test', function () {
 });
 
 // Webhook endpoint (public)
+Route::post('/whatsapp/webhook', [WhatsAppWebhookController::class, 'handle'])->name('whatsapp.webhook');
+
+// Backward compatibility for old webhook URL
 Route::post('/whatsapp-webhook', [WhatsAppWebhookController::class, 'handle']);
 
 // Simple auth check endpoint

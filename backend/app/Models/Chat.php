@@ -26,7 +26,6 @@ class Chat extends Model
         'name',
         'last_message_id',
         'last_message_at',
-        'participants',
         'unread_count',
         'is_group',
         'is_archived',
@@ -34,6 +33,16 @@ class Chat extends Model
         'metadata',
         'created_by',
     ];
+    
+    /**
+     * The users that belong to the chat.
+     */
+    public function users()
+    {
+        return $this->belongsToMany(User::class, 'chat_user', 'chat_id', 'user_id')
+            ->withTimestamps()
+            ->withPivot(['is_admin', 'muted_until']);
+    }
 
     /**
      * The attributes that should be cast.
@@ -42,7 +51,6 @@ class Chat extends Model
      */
     protected $casts = [
         'last_message_at' => 'datetime',
-        'participants' => 'array',
         'is_group' => 'boolean',
         'is_archived' => 'boolean',
         'is_muted' => 'boolean',
@@ -76,16 +84,6 @@ class Chat extends Model
         'is_muted' => false,
         'unread_count' => 0,
     ];
-
-    /**
-     * The users that belong to the chat.
-     */
-    public function users()
-    {
-        return $this->belongsToMany(User::class, 'chat_user', 'chat_id', 'user_id')
-            ->withTimestamps()
-            ->withPivot(['is_admin', 'muted_until']);
-    }
 
     /**
      * The user who created the chat.

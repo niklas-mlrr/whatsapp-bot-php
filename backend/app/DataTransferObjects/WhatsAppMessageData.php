@@ -13,20 +13,49 @@ class WhatsAppMessageData
         public readonly ?string $content,
         public readonly ?string $sending_time,
         public readonly ?string $media = null,
-        public readonly ?string $mimetype = null
+        public readonly ?string $mimetype = null,
+        public readonly ?array $contextInfo = null,
+        public readonly ?string $messageId = null,
+        public readonly ?bool $isGroup = false
     ) {
     }
 
     public static function fromRequest(WhatsAppMessageRequest $request): self
     {
+        $validated = $request->validated();
+        
+        // Get sender (either from 'sender' or 'from' field)
+        $sender = $validated['sender'] ?? $validated['from'] ?? null;
+        
+        // Get chat (either from 'chat' or 'from' field)
+        $chat = $validated['chat'] ?? $validated['from'] ?? $sender;
+        
+        // Get content (either from 'content' or 'body' field)
+        $content = $validated['content'] ?? $validated['body'] ?? '';
+        
+        // Get timestamp (either from 'sending_time' or 'timestamp' or current time)
+        $sendingTime = $validated['sending_time'] ?? $validated['timestamp'] ?? now()->toDateTimeString();
+        
+        // If we still don't have a sender or chat, throw an exception
+        if (!$sender || !$chat) {
+            throw new \InvalidArgumentException(sprintf(
+                'Missing required fields. Sender: %s, Chat: %s',
+                $sender ? 'present' : 'missing',
+                $chat ? 'present' : 'missing'
+            ));
+        }
+        
         return new self(
-            sender: $request->validated('sender'),
-            chat: $request->validated('chat'),
-            type: $request->validated('type'),
-            content: $request->validated('content'),
-            sending_time: $request->validated('sending_time'),
-            media: $request->validated('media') ?? null,
-            mimetype: $request->validated('mimetype') ?? null,
+            sender: $sender,
+            chat: $chat,
+            type: $validated['type'] ?? 'text',
+            content: $content,
+            sending_time: $sendingTime,
+            media: $validated['media'] ?? null,
+            mimetype: $validated['mimetype'] ?? null,
+            contextInfo: $validated['contextInfo'] ?? null,
+            messageId: $validated['messageId'] ?? $validated['id'] ?? null,
+            isGroup: (bool)($validated['isGroup'] ?? false)
         );
     }
 }

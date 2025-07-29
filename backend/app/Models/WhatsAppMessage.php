@@ -50,6 +50,20 @@ class WhatsAppMessage extends Model
         'sender_avatar',
     ];
 
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($model) {
+            if (isset($model->metadata['message_id'])) {
+                $existing = WhatsAppMessage::where('metadata->message_id', $model->metadata['message_id'])->first();
+                if ($existing) {
+                    throw new \Exception('Duplicate message detected');
+                }
+            }
+        });
+    }
+
     /**
      * The users who have read this message.
      */
