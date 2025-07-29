@@ -20,13 +20,28 @@ export default defineConfig(({ command, mode }) => ({
   },
   server: {
     proxy: {
-      '/api': 'http://localhost:8000',
-      '/storage': 'http://localhost:8000',
-      '/broadcasting': 'http://localhost:8000',
-      '/ws': {
-        target: 'ws://localhost:6001',
-        ws: true,
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false
       },
+      '/storage': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false
+      },
+      '/broadcasting': {
+        target: 'http://localhost:8000',
+        ws: true,
+        changeOrigin: true,
+        secure: false
+      },
+      '/ws': {
+        target: 'ws://localhost:8080',
+        ws: true,
+        changeOrigin: true,
+        secure: false
+      }
     }
   }
 }))

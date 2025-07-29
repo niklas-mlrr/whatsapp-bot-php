@@ -2,6 +2,7 @@ import { ref, onUnmounted, type Ref } from 'vue';
 import Echo from 'laravel-echo';
 import type { EchoOptions } from 'laravel-echo';
 import Pusher from 'pusher-js';
+import axios from 'axios';
 import { useAuthStore } from '@/stores/auth';
 
 // Type definitions for our WebSocket events
@@ -79,24 +80,60 @@ export function useWebSocket(): WebSocketService {
         return false;
       }
       
-      // Create new Echo instance
+      // Create new Echo instance for Laravel Reverb
+      const reverbHost = import.meta.env.VITE_REVERB_HOST || window.location.hostname;
+      const reverbPort = parseInt(import.meta.env.VITE_REVERB_PORT || '8080', 10);
+      const reverbAppKey = import.meta.env.VITE_REVERB_APP_KEY || 'whatsapp-bot-key';
+      
+      console.log('Connecting to WebSocket at:', {
+        host: reverbHost,
+        port: reverbPort,
+        key: reverbAppKey
+      });
+      
       echo = new Echo({
-        broadcaster: 'pusher',
-        key: import.meta.env.VITE_REVERB_APP_KEY || 'whatsapp-bot-key',
-        cluster: 'mt1', // Add cluster parameter
-        wsHost: import.meta.env.VITE_REVERB_HOST || window.location.hostname,
-        wsPort: parseInt(import.meta.env.VITE_REVERB_PORT || '8080', 10),
-        forceTLS: false, // Disable for local development
-        enabledTransports: ['ws'],
+        broadcaster: 'reverb',
+        key: reverbAppKey,
+        wsHost: reverbHost,
+        wsPort: reverbPort,
+        wssPort: reverbPort,
+        forceTLS: false,
+        enabledTransports: ['ws', 'wss'],
         disableStats: true,
         auth: {
           headers: {
-            Authorization: `Bearer ${token}`,
+            'Authorization': `Bearer ${token}`,
             'X-CSRF-TOKEN': document.head.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
             'Accept': 'application/json',
+            'X-Socket-ID': socketId.value || '',
+            'X-Requested-With': 'XMLHttpRequest',
           },
         },
         authEndpoint: '/broadcasting/auth',
+        authorizer: (channel: any, options: any) => {
+          return {
+            authorize: (socketId: string, callback: Function) => {
+              axios.post('/broadcasting/auth', {
+                socket_id: socketId,
+                channel_name: channel.name
+              }, {
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'X-CSRF-TOKEN': document.head.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+                  'Accept': 'application/json',
+                  'X-Requested-With': 'XMLHttpRequest',
+                }
+              })
+              .then((response: any) => {
+                callback(false, response.data);
+              })
+              .catch((error: any) => {
+                console.error('Authorization error:', error);
+                callback(true, error);
+              });
+            }
+          };
+        }
       });
       
       // Add error handling

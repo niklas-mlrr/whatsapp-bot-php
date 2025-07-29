@@ -20,8 +20,6 @@ class User extends Authenticatable
      */
     protected $fillable = [
         'name',
-        'email',
-        'phone',
         'password',
         'avatar_url',
         'last_seen_at',
@@ -36,7 +34,6 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
-        'email_verified_at',
         'last_seen_at',
     ];
 
@@ -131,12 +128,17 @@ class User extends Authenticatable
      */
     public static function getFirstUser()
     {
-        return static::firstOrCreate(
-            ['email' => 'admin@example.com'],
-            [
-                'name' => 'Admin User',
-                'password' => Hash::make('password'),
-            ]
-        );
+        // First try to get any existing user
+        $user = static::first();
+        
+        // If no user exists, create a default admin user
+        if (!$user) {
+            $user = static::create([
+                'name' => 'Admin',
+                'password' => Hash::make('admin123'),
+            ]);
+        }
+        
+        return $user;
     }
 }

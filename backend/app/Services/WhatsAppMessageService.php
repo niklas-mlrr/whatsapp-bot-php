@@ -3,13 +3,15 @@
 namespace App\Services;
 
 use App\DataTransferObjects\WhatsAppMessageData;
+use App\Models\WhatsAppMessage;
+use App\Models\Chat;
+use App\Models\User;
+use App\Services\WebSocketService;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use App\Models\WhatsAppMessage;
-use App\Services\WebSocketService;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Queue;
 
 class WhatsAppMessageService
 {
@@ -20,7 +22,7 @@ class WhatsAppMessageService
         $this->webSocketService = $webSocketService;
     }
 
-    public function handle(WhatsAppMessageData $data): void
+    public function handle(WhatsAppMessageData $data, int $retryCount = 0): void
     {
         try {
             // Check for duplicate message
@@ -35,6 +37,16 @@ class WhatsAppMessageService
 
             // Store in cache for 1 hour to prevent duplicates
             Cache::put($cacheKey, true, now()->addHour());
+
+            // Find or create chat
+            $chat = $this->findOrCreateChat($data->chat, $data->sender);
+            
+            // Find or create sender user
+            $sender = $this->findOrCreateUser($data->sender);
+            
+            // Add sender_id to data
+            $data->sender_id = $sender->id;
+            $data->chat_id = $chat->id;
 
             // Process message based on type
             $message = match ($data->type) {
@@ -51,19 +63,30 @@ class WhatsAppMessageService
             // Queue WebSocket notification
             if ($message) {
                 $this->webSocketService->newMessage($message);
+                
+                // Update chat's last message reference
+                $chat->update([
+                    'last_message_id' => $message->id,
+                    'last_message_at' => $message->sending_time ?? now(),
+                ]);
+                
+                Log::channel('whatsapp')->info('Message saved successfully', [
+                    'message_id' => $message->id,
+                    'sender' => $data->sender,
+                    'chat' => $data->chat,
+                    'type' => $data->type,
+                ]);
             }
         } catch (\Exception $e) {
             Log::channel('whatsapp')->error('Error processing message', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
                 'data' => (array) $data,
+                'retry_count' => $retryCount,
             ]);
             
             // Retry processing the message
-            if (!isset($retryCount)) {
-                $retryCount = 1;
-                $this->retryMessageProcessing($data, $retryCount);
-            }
+            $this->retryMessageProcessing($data, $retryCount + 1);
         }
     }
 
@@ -75,7 +98,9 @@ class WhatsAppMessageService
 
         return WhatsAppMessage::create([
             'sender' => $data->sender,
+            'sender_id' => $data->sender_id,
             'chat' => $data->chat,
+            'chat_id' => $data->chat_id,
             'type' => 'text',
             'direction' => 'incoming',
             'status' => 'delivered',
@@ -123,7 +148,9 @@ class WhatsAppMessageService
 
             return WhatsAppMessage::create([
                 'sender' => $data->sender,
+                'sender_id' => $data->sender_id,
                 'chat' => $data->chat,
+                'chat_id' => $data->chat_id,
                 'type' => 'image', // Force type to image
                 'direction' => 'incoming',
                 'status' => 'delivered',
@@ -284,7 +311,9 @@ class WhatsAppMessageService
 
             return WhatsAppMessage::create([
                 'sender' => $data->sender,
+                'sender_id' => $data->sender_id,
                 'chat' => $data->chat,
+                'chat_id' => $data->chat_id,
                 'type' => 'document',
                 'direction' => 'incoming',
                 'status' => 'delivered',
@@ -323,7 +352,9 @@ class WhatsAppMessageService
 
             return WhatsAppMessage::create([
                 'sender' => $data->sender,
+                'sender_id' => $data->sender_id,
                 'chat' => $data->chat,
+                'chat_id' => $data->chat_id,
                 'type' => 'location',
                 'direction' => 'incoming',
                 'status' => 'delivered',
@@ -363,7 +394,9 @@ class WhatsAppMessageService
 
             return WhatsAppMessage::create([
                 'sender' => $data->sender,
+                'sender_id' => $data->sender_id,
                 'chat' => $data->chat,
+                'chat_id' => $data->chat_id,
                 'type' => 'contact',
                 'direction' => 'incoming',
                 'status' => 'delivered',
@@ -397,11 +430,13 @@ class WhatsAppMessageService
 
         return WhatsAppMessage::create([
             'sender' => $data->sender,
+            'sender_id' => $data->sender_id ?? null,
             'chat' => $data->chat,
+            'chat_id' => $data->chat_id ?? null,
             'type' => 'unknown',
             'direction' => 'incoming',
             'status' => 'delivered',
-            'content' => $data->content,
+            'content' => $data->content ?? json_encode($data->toArray()),
             'media' => $data->media,
             'mimetype' => $data->mimetype,
             'sending_time' => $data->sending_time ?? now(),
@@ -615,12 +650,57 @@ class WhatsAppMessageService
     }
 
     /**
+     * Find or create a chat for the given phone number
+     */
+    private function findOrCreateChat(string $chatPhone, string $senderPhone): Chat
+    {
+        // Try to find an existing chat
+        $chat = Chat::where('is_group', false)
+            ->whereJsonContains('participants', $chatPhone)
+            ->whereJsonContains('participants', $senderPhone)
+            ->first();
+            
+        if ($chat) {
+            return $chat;
+        }
+        
+        // Create a new chat
+        return Chat::create([
+            'name' => 'Chat with ' . $chatPhone,
+            'is_group' => false,
+            'participants' => [$chatPhone, $senderPhone],
+            'metadata' => [
+                'type' => 'direct',
+                'created_at' => now()->toDateTimeString(),
+            ],
+        ]);
+    }
+    
+    /**
+     * Find or create a user for the given phone number
+     */
+    private function findOrCreateUser(string $phone): User
+    {
+        return User::firstOrCreate(
+            ['phone' => $phone],
+            [
+                'name' => $phone, // Default name is the phone number
+                'password' => bcrypt(Str::random(16)), // Random password
+                'email' => $phone . '@whatsapp.local', // Dummy email
+            ]
+        );
+    }
+    
+    /**
      * Retry processing a failed message
      */
-    private function retryMessageProcessing(WhatsAppMessageData $data, int $retryCount, int $maxRetries = 3): void
+    private function retryMessageProcessing(WhatsAppMessageData $data, int $retryCount): void
     {
+        $maxRetries = 3;
+        $delay = pow(2, $retryCount) * 5; // Exponential backoff: 10s, 20s, 40s, etc.
+        
         if ($retryCount > $maxRetries) {
-            Log::channel('whatsapp')->error('Max retries reached for message processing', [
+            Log::channel('whatsapp')->error('Max retries reached for message', [
                 'sender' => $data->sender,
                 'chat' => $data->chat,
                 'type' => $data->type,
@@ -628,25 +708,24 @@ class WhatsAppMessageService
             ]);
             return;
         }
-
-        // Exponential backoff: 5s, 15s, 45s
-        $delay = 5 * (3 ** ($retryCount - 1));
         
-        // Queue the message for retry
-        dispatch(function () use ($data, $retryCount) {
-            try {
-                $this->handle($data);
-            } catch (\Exception $e) {
-                $this->retryMessageProcessing($data, $retryCount + 1);
-            }
-        })->delay(now()->addSeconds($delay));
-        
-        Log::channel('whatsapp')->info('Message queued for retry', [
+        // Log the retry attempt
+        Log::channel('whatsapp')->info('Retrying message processing', [
             'sender' => $data->sender,
             'chat' => $data->chat,
             'type' => $data->type,
-            'retry_count' => $retryCount,
+            'attempt' => $retryCount,
             'next_attempt_in_seconds' => $delay,
         ]);
+        
+        // Wait before retrying
+        sleep($delay);
+        
+        // Try processing again
+        try {
+            $this->handle($data);
+        } catch (\Exception $e) {
+            $this->retryMessageProcessing($data, $retryCount + 1);
+        }
     }
 }
