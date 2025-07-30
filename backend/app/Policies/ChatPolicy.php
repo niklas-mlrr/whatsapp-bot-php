@@ -24,7 +24,7 @@ class ChatPolicy
     public function view(User $user, Chat $chat): bool
     {
         // User can view the chat if they are a participant
-        return $chat->participants->contains($user->phone);
+        return $chat->users()->where('users.id', $user->id)->exists();
     }
 
     /**

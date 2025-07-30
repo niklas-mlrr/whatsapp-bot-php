@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 
 class WhatsAppMessageService
 {
@@ -39,14 +40,26 @@ class WhatsAppMessageService
 
             // Process with timeout protection
             DB::transaction(function() use ($data) {
+                // Find or create user
+                $user = User::firstOrCreate(
+                    ['phone' => $data->sender],
+                    [
+                        'name' => 'WhatsApp User', 
+                        'password' => Hash::make(Str::random(32)),
+                        'status' => 'active'
+                    ]
+                );
+
                 // Find or create chat
-                $chat = $this->findOrCreateChat($data->chat, $data->sender);
-                
-                // Find or create sender user
-                $sender = $this->findOrCreateUser($data->sender);
-                
+                $chat = $this->findOrCreateChat($data->chat, $user->id);
+
+                // Associate user with chat if not already
+                if (!$chat->users()->where('chat_user.user_id', $user->id)->exists()) {
+                    $chat->users()->attach($user->id, ['whatsapp_id' => $data->sender]);
+                }
+
                 // Add sender_id to data
-                $data->sender_id = $sender->id;
+                $data->sender_id = $user->id;
                 $data->chat_id = $chat->id;
 
                 // Process message based on type
@@ -672,6 +685,7 @@ class WhatsAppMessageService
             $chat = Chat::create([
                 'name' => $chatId,
                 'is_group' => false,
+                'created_by' => $senderId,
                 'metadata' => [
                     'whatsapp_id' => $chatId,
                     'created_by' => $senderId
@@ -685,7 +699,7 @@ class WhatsAppMessageService
         }
 
         // Ensure sender is connected to chat
-        if (!$chat->users()->where('users.id', $senderId)->exists()) {
+        if (!$chat->users()->where('chat_user.user_id', $senderId)->exists()) {
             $chat->users()->attach($senderId);
         }
 

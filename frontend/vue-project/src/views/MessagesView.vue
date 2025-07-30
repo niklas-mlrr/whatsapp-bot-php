@@ -99,6 +99,8 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import MessageList from '../components/MessageList.vue'
 import { fetchChats, sendMessage, uploadImage } from '../api/messages'
 
@@ -284,7 +286,31 @@ function selectAddImage() {
   }, 100)
 }
 
+const checkAuthAndRedirect = async () => {
+  const authStore = useAuthStore()
+  const router = useRouter()
+  
+  if (!authStore.isAuthenticated) {
+    try {
+      // Try to check auth status
+      const valid = await authStore.checkAuth()
+      if (!valid) {
+        router.push('/login')
+        return false
+      }
+      return true
+    } catch (error) {
+      router.push('/login')
+      return false
+    }
+  }
+  return true
+}
+
 onMounted(async () => {
+  const isAuthenticated = await checkAuthAndRedirect()
+  if (!isAuthenticated) return
+  
   loadingChats.value = true
   errorChats.value = null
   try {
@@ -294,7 +320,13 @@ onMounted(async () => {
       selectedChat.value = chats.value[0]
     }
   } catch (e: any) {
-    errorChats.value = e?.message || 'Failed to load chats.'
+    if (e.response?.status === 401) {
+      errorChats.value = 'Session expired. Please login again.'
+      const authStore = useAuthStore()
+      authStore.logout()
+    } else {
+      errorChats.value = e?.message || 'Failed to load chats.'
+    }
   } finally {
     loadingChats.value = false
   }

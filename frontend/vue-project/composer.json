@@ -1,0 +1,12 @@
+{
+    "name": "whatsapp-bot/frontend-dependencies",
+    "description": "Virtual package listing frontend npm dependencies",
+    "require": {
+        "virtual/vite": "^7.0",
+        "virtual/@vitejs/plugin-vue": "^5.0",
+        "virtual/@heroicons/vue": "^2.0"
+    },
+    "extra": {
+        "note": "These are virtual packages representing actual npm dependencies"
+    }
+}

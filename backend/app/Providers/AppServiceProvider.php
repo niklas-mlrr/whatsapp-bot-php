@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Models\Chat;
 use App\Policies\ChatPolicy;
 use App\Services\ChatService;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
@@ -35,6 +36,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Set default string length for MySQL
+        Schema::defaultStringLength(191);
+
         // Register policies
         foreach ($this->policies as $model => $policy) {
             Gate::policy($model, $policy);

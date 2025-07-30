@@ -1,0 +1,25 @@
+<?php
+
+use App\DataTransferObjects\WhatsAppMessageData;
+use App\Services\WhatsAppMessageService;
+
+require __DIR__.'/vendor/autoload.php';
+
+$app = require __DIR__.'/bootstrap/app.php';
+$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+
+// Create message data with all required parameters
+$data = new WhatsAppMessageData(
+    sender: '4917646765869@s.whatsapp.net',
+    chat: '4917646765869@s.whatsapp.net',
+    type: 'text',
+    content: 'Hallo',
+    sending_time: now()->toDateTimeString(),
+    messageId: 'test456',
+    isGroup: false
+);
+
+$service = $app->make(WhatsAppMessageService::class);
+$service->handle($data);
+
+echo "Message processed successfully\n";

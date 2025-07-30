@@ -24,10 +24,10 @@ class ChatController extends Controller
         $query = $user->chats()
             ->with([
                 'users' => function ($query) use ($user) {
-                    $query->where('users.id', '!=', $user->id);
+                    $query->where('users.id', '!=', $user->id)
+                        ->select(['id', 'name', 'avatar_url']);
                 },
-                'lastMessage',
-                'lastMessage.sender'
+                'lastMessage.sender:id,name,avatar_url'
             ])
             ->withCount(['unreadMessages' => function($query) use ($user) {
                 $query->whereDoesntHave('readers', function($q) use ($user) {
@@ -47,55 +47,28 @@ class ChatController extends Controller
             });
         }
 
-        // Paginate the results
-        $perPage = $request->input('per_page', 20);
+        // Paginate the results with a smaller default page size
+        $perPage = $request->input('per_page', 15);
         $chats = $query->paginate($perPage);
 
-        // Format the response
-        $chats->getCollection()->transform(function ($chat) use ($user) {
-            $formattedChat = [
-                'id' => $chat->id,
-                'name' => $chat->name,
-                'is_group' => $chat->is_group,
-                'avatar_url' => $chat->avatar_url,
-                'unread_count' => $chat->unread_messages_count,
-                'is_online' => $chat->is_online,
-                'last_message' => $chat->last_message ? [
-                    'id' => $chat->last_message->id,
-                    'content' => $chat->last_message->content,
-                    'type' => $chat->last_message->type,
-                    'status' => $chat->last_message->status,
-                    'created_at' => $chat->last_message->created_at,
-                    'sender' => $chat->last_message->sender ? [
-                        'id' => $chat->last_message->sender->id,
-                        'name' => $chat->last_message->sender->name,
-                        'avatar_url' => $chat->last_message->sender->avatar_url,
-                    ] : null,
-                ] : null,
-                'users' => $chat->users->map(function ($user) {
-                    return [
-                        'id' => $user->id,
-                        'name' => $user->name,
-                        'avatar_url' => $user->avatar_url,
-                        'is_online' => $user->is_online,
-                    ];
-                }),
-                'updated_at' => $chat->updated_at,
-            ];
-
-            // For direct chats, set the name to the other user's name if not set
-            if (!$chat->is_group && !$chat->name) {
-                $otherUser = $chat->users->first();
-                if ($otherUser) {
-                    $formattedChat['name'] = $otherUser->name;
-                }
-            }
-
-            return $formattedChat;
-        });
-
+        // Simplify the response format
         return response()->json([
-            'data' => $chats->items(),
+            'data' => $chats->map(function ($chat) {
+                return [
+                    'id' => $chat->id,
+                    'name' => $chat->name,
+                    'is_group' => $chat->is_group,
+                    'avatar_url' => $chat->avatar_url,
+                    'unread_count' => $chat->unread_messages_count,
+                    'last_message' => $chat->last_message ? [
+                        'content' => $chat->last_message->content,
+                        'created_at' => $chat->last_message->created_at,
+                        'sender' => $chat->last_message->sender
+                    ] : null,
+                    'users' => $chat->users,
+                    'updated_at' => $chat->updated_at
+                ];
+            }),
             'meta' => [
                 'current_page' => $chats->currentPage(),
                 'last_page' => $chats->lastPage(),
