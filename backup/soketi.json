@@ -1,0 +1,22 @@
+{
+    "debug": true,
+    "port": 6001,
+    "appManager.array.apps": [
+        {
+            "id": "whatsapp-bot",
+            "key": "whatsapp-bot-key",
+            "secret": "whatsapp-bot-secret",
+            "maxConnections": -1,
+            "enableClientMessages": true,
+            "enabled": true,
+            "maxBackendEventsPerSecond": -1,
+            "maxClientEventsPerSecond": -1,
+            "maxPresenceMembersPerChannel": -1,
+            "maxPresenceMemberSizeInKb": -1,
+            "maxChannelNameLength": -1,
+            "maxEventChannelsAtOnce": -1,
+            "maxEventNameLength": -1,
+            "maxEventPayloadInKb": -1
+        }
+    ]
+}
